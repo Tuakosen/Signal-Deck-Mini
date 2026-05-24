@@ -226,6 +226,10 @@
     var b = $('banner'); b.className = 'banner idle';
     b.innerHTML = 'Enter readings and press <b>Analyze</b>';
     $('report').innerHTML = '';
+    var savedKey; try { savedKey = localStorage.getItem(LS_KEY); } catch (e) {}
+    if (savedKey) { $('apiKey').value = savedKey; $('rememberKey').checked = true; }
+    setStatus('', '');
+    syncSourceUI();
   }
 
   function analyze() {
@@ -236,10 +240,88 @@
     }
   }
 
+  // --- Live data adapters --------------------------------------------------
+  var ADAPTERS = window.SignalAdapters;
+  var LS_KEY = 'sdm_apikey', LS_PROV = 'sdm_provider';
+
+  function applyFields(fields) {
+    Object.keys(fields).forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = !!fields[id];
+      else el.value = fields[id];
+    });
+  }
+
+  function currentAdapter() {
+    return ADAPTERS.byId[val('provider')] || ADAPTERS.byId.manual;
+  }
+
+  function syncSourceUI() {
+    var a = currentAdapter();
+    var needs = !!a.needsKey;
+    $('keyWrap').style.display = needs ? '' : 'none';
+    $('rememberKey').parentElement.style.display = needs ? '' : 'none';
+    $('fetchLive').style.display = a.id === 'manual' ? 'none' : '';
+    $('keyHint').textContent = a.keyHint || '';
+  }
+
+  function setStatus(cls, html) {
+    var s = $('fetchStatus');
+    s.className = 'status ' + (cls || '');
+    s.innerHTML = html || '';
+  }
+
+  function fetchLive() {
+    var a = currentAdapter();
+    var key = val('apiKey');
+    if (a.needsKey && !key) { setStatus('err', 'Enter an API key first.'); return; }
+
+    if ($('rememberKey').checked) {
+      try { localStorage.setItem(LS_KEY, key); localStorage.setItem(LS_PROV, a.id); } catch (e) {}
+    } else {
+      try { localStorage.removeItem(LS_KEY); } catch (e) {}
+    }
+
+    var btn = $('fetchLive');
+    btn.disabled = true;
+    setStatus('busy', 'Fetching from ' + esc(a.label) + '…');
+
+    a.fetch({ apiKey: key, symbol: 'SPY' }).then(function (res) {
+      applyFields(res.fields);
+      var filled = res.filled.length
+        ? 'Filled ' + res.filled.length + ' field(s): ' + esc(res.filled.join(', ')) + '.'
+        : 'No fields returned.';
+      var gaps = res.gaps && res.gaps.length
+        ? '<span class="gaps">Enter manually: ' + esc(res.gaps.join(', ')) + '.</span>' : '';
+      setStatus('ok', filled + gaps);
+      analyze();
+    }).catch(function (err) {
+      setStatus('err', 'Fetch failed: ' + esc(err.message || String(err)));
+    }).then(function () { btn.disabled = false; });
+  }
+
+  function initSource() {
+    var sel = $('provider');
+    ADAPTERS.list.forEach(function (a) {
+      var o = document.createElement('option');
+      o.value = a.id; o.textContent = a.label;
+      sel.appendChild(o);
+    });
+    var savedProv, savedKey;
+    try { savedProv = localStorage.getItem(LS_PROV); savedKey = localStorage.getItem(LS_KEY); } catch (e) {}
+    if (savedProv && ADAPTERS.byId[savedProv]) sel.value = savedProv;
+    if (savedKey) { $('apiKey').value = savedKey; $('rememberKey').checked = true; }
+    syncSourceUI();
+    sel.addEventListener('change', syncSourceUI);
+    $('fetchLive').addEventListener('click', fetchLive);
+  }
+
   $('analyze').addEventListener('click', analyze);
   $('example').addEventListener('click', loadExample);
   $('reset').addEventListener('click', resetForm);
 
+  initSource();
   tickClock();
   setInterval(tickClock, 1000);
 })();

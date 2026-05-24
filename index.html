@@ -28,8 +28,23 @@
   <!-- ============ INPUTS ============ -->
   <section class="panel inputs">
     <h2>Market Readings</h2>
-    <p class="hint">Enter the readings you see on your chart. The engine applies the 8-step
-      framework and its NO-TRADE gates to them — it does not fetch live data.</p>
+    <p class="hint">Pull what you can from a live source, then fill the rest (options chain,
+      pre-market/opening-range levels, news) by hand. The engine applies the 8-step framework
+      and its NO-TRADE gates to whatever is in the form.</p>
+
+    <fieldset>
+      <legend>Data Source</legend>
+      <div class="grid2">
+        <label>Provider <select id="provider"></select></label>
+        <label id="keyWrap">API Key <input type="password" id="apiKey" placeholder="provider key"></label>
+      </div>
+      <div class="srcrow">
+        <label class="check"><input type="checkbox" id="rememberKey"> Remember key (this browser)</label>
+        <button id="fetchLive" class="primary small">Fetch Live</button>
+      </div>
+      <p class="hint" id="keyHint"></p>
+      <div id="fetchStatus" class="status"></div>
+    </fieldset>
 
     <fieldset>
       <legend>Session &amp; Price</legend>
@@ -150,6 +165,7 @@
 </footer>
 
 <script src="engine.js"></script>
+<script src="adapters.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

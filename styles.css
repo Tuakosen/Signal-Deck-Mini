@@ -83,6 +83,16 @@ button.primary { background: var(--accent); color: #05101e; border-color: var(--
 button.primary:hover { filter: brightness(1.1); }
 button.ghost { background: transparent; color: var(--ink); }
 button.ghost:hover { border-color: var(--accent); }
+button.small { padding: 7px 14px; font-size: 12px; }
+button:disabled { opacity: .5; cursor: default; }
+
+.srcrow { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 10px; }
+.status { font-size: 12px; margin-top: 8px; min-height: 16px; }
+.status.ok { color: var(--call); }
+.status.err { color: var(--put); }
+.status.busy { color: var(--accent); }
+.status .gaps { color: var(--muted); display: block; margin-top: 4px; }
+#keyHint { margin: 6px 0 0; }
 
 /* ---- Output ---- */
 .banner {

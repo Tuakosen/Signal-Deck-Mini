@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Deck Mini — SPY 0DTE Options</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">▚</span>
+    <div>
+      <h1>SIGNAL DECK <span class="mini">MINI</span></h1>
+      <p class="tag">SPY 0DTE Options · Decision Engine</p>
+    </div>
+  </div>
+  <div class="clock" id="clock">--:-- ET</div>
+</header>
+
+<div class="disclaimer" role="note">
+  <strong>PAPER TRADING EDUCATION ONLY — NOT FINANCIAL ADVICE.</strong>
+  Never trade real money on AI-generated signals. 0DTE options are extremely high-risk:
+  premiums decay fast and can go to zero. If the setup is unclear, the answer is NO OPTIONS TRADE.
+</div>
+
+<main class="layout">
+  <!-- ============ INPUTS ============ -->
+  <section class="panel inputs">
+    <h2>Market Readings</h2>
+    <p class="hint">Enter the readings you see on your chart. The engine applies the 8-step
+      framework and its NO-TRADE gates to them — it does not fetch live data.</p>
+
+    <fieldset>
+      <legend>Session &amp; Price</legend>
+      <div class="grid2">
+        <label>Session
+          <select id="session">
+            <option value="AUTO">Auto-detect (ET)</option>
+            <option value="RTH">RTH</option>
+            <option value="PRE">Pre-market</option>
+            <option value="AFTER">After-hours</option>
+            <option value="CLOSED">Closed</option>
+          </select>
+        </label>
+        <label>SPY Price <input type="number" id="spy" step="0.01" placeholder="521.40"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Key Levels</legend>
+      <div class="grid3">
+        <label>VWAP <input type="number" id="vwap" step="0.01"></label>
+        <label>Resistance <input type="number" id="resistance" step="0.01"></label>
+        <label>Support <input type="number" id="support" step="0.01"></label>
+        <label>Pre-Mkt High <input type="number" id="pmh" step="0.01"></label>
+        <label>Pre-Mkt Low <input type="number" id="pml" step="0.01"></label>
+        <label>Prior Day High <input type="number" id="pdh" step="0.01"></label>
+        <label>Prior Day Low <input type="number" id="pdl" step="0.01"></label>
+        <label>Prior Day Close <input type="number" id="pdc" step="0.01"></label>
+        <label>Day Open <input type="number" id="open" step="0.01"></label>
+        <label>Opening Range High <input type="number" id="orh" step="0.01"></label>
+        <label>Opening Range Low <input type="number" id="orl" step="0.01"></label>
+        <label>VWAP Chop Band $ <input type="number" id="vwapBand" step="0.01" placeholder="auto"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Momentum (Steps 3–5)</legend>
+      <div class="grid3">
+        <label>MACD 5m
+          <select id="macdDir"><option value="FLAT">Flat</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select>
+        </label>
+        <label>Histogram
+          <select id="histo"><option value="FLAT">Flat</option><option value="EXPANDING">Expanding</option><option value="CONTRACTING">Contracting</option></select>
+        </label>
+        <label>MACD 15m
+          <select id="macd15"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select>
+        </label>
+        <label>RSI <input type="number" id="rsi" step="1" min="0" max="100" placeholder="58"></label>
+        <label>Volume Flow
+          <select id="volume">
+            <option value="MIXED">Mixed</option>
+            <option value="CONFIRM_UP">Confirms up</option>
+            <option value="CONFIRM_DOWN">Confirms down</option>
+            <option value="WEAK">Weak / no participation</option>
+          </select>
+        </label>
+        <label>Regime
+          <select id="regime"><option value="CHOP">Chop</option><option value="TREND">Trend</option><option value="BREAKOUT">Breakout</option><option value="RANGE">Range</option></select>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Cross-Market &amp; Macro (Steps 1 &amp; 8)</legend>
+      <div class="grid3">
+        <label>QQQ <select id="qqq"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select></label>
+        <label>ES Futures <select id="es"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select></label>
+        <label>VIX <select id="vix"><option value="FLAT">Flat</option><option value="UP">Rising</option><option value="DOWN">Falling</option></select></label>
+        <label>10Y Yield <select id="yield10"><option value="FLAT">Flat</option><option value="UP">Rising</option><option value="DOWN">Falling</option></select></label>
+        <label>News Bias <select id="news"><option value="NEUTRAL">Neutral</option><option value="BULLISH">Bullish</option><option value="BEARISH">Bearish</option></select></label>
+        <label class="check">News imminent?
+          <input type="checkbox" id="newsImminent">
+        </label>
+      </div>
+      <label>Top Headline <input type="text" id="newsHeadline" placeholder="e.g. Cooler-than-expected CPI"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>0DTE Contract (Step 2)</legend>
+      <div class="grid3">
+        <label>Bid <input type="number" id="bid" step="0.01"></label>
+        <label>Ask <input type="number" id="ask" step="0.01"></label>
+        <label>Premium (opt) <input type="number" id="premium" step="0.01" placeholder="mid"></label>
+        <label>Volume <input type="number" id="optVolume" step="1"></label>
+        <label>Open Interest <input type="number" id="oi" step="1"></label>
+        <label>IV % <input type="number" id="iv" step="0.01" placeholder="0.18"></label>
+        <label>Delta <input type="number" id="delta" step="0.01"></label>
+        <label>Gamma <input type="number" id="gamma" step="0.01"></label>
+        <label>Theta <input type="number" id="theta" step="0.01"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Risk Plan</legend>
+      <div class="grid3">
+        <label>Stop % of premium <input type="number" id="stopPct" step="0.05" value="0.30"></label>
+        <label>Target 1 % <input type="number" id="t1Pct" step="0.05" value="0.60"></label>
+        <label>Target 2 % <input type="number" id="t2Pct" step="0.05" value="1.20"></label>
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button id="analyze" class="primary">Analyze</button>
+      <button id="example" class="ghost">Load Example</button>
+      <button id="reset" class="ghost">Reset</button>
+    </div>
+  </section>
+
+  <!-- ============ OUTPUT ============ -->
+  <section class="panel output">
+    <div id="banner" class="banner idle">Enter readings and press <b>Analyze</b></div>
+    <div id="report" class="report"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  Signal Deck Mini · paper-trading education · no live market data · not financial advice
+</footer>
+
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -328,7 +328,59 @@
     }
   };
 
-  var list = [Manual, TwelveData, AlphaVantage];
+  // --- Mock adapter (offline harness) -------------------------------------
+  // Canned Twelve Data-shaped responses, run through the real parsers/map so
+  // the full fetch -> parse -> populate -> render path is exercised with no key.
+  var MOCK_RAW = {
+    quote: { status: 'fulfilled', value: {
+      symbol: 'SPY', open: '520.10', high: '521.95', low: '519.70', close: '521.40',
+      previous_close: '519.80', change: '1.60', percent_change: '0.31',
+      volume: '58000000', average_volume: '48000000', is_market_open: true } },
+    daily: { status: 'fulfilled', value: { status: 'ok', values: [
+      { datetime: '2026-05-20', high: '521.10', low: '519.50', close: '520.40' },
+      { datetime: '2026-05-19', high: '521.10', low: '518.40', close: '519.80' } ] } },
+    vwap: { status: 'fulfilled', value: { values: [{ datetime: '2026-05-20 15:55:00', vwap: '520.55' }] } },
+    macd5: { status: 'fulfilled', value: { values: [
+      { macd: '0.42', macd_signal: '0.26', macd_hist: '0.16' },
+      { macd: '0.35', macd_signal: '0.28', macd_hist: '0.07' } ] } },
+    macd15: { status: 'fulfilled', value: { values: [{ macd: '0.30', macd_signal: '0.18' }] } },
+    rsi: { status: 'fulfilled', value: { values: [{ rsi: '59.2' }] } },
+    qqq: { status: 'fulfilled', value: { close: '452.0', percent_change: '0.46' } },
+    vix: { status: 'fulfilled', value: { close: '13.8', percent_change: '-2.4' } }
+  };
+
+  var MockData = {
+    id: 'mock',
+    label: 'Mock data (offline demo — no key, no network)',
+    needsKey: false,
+    // Pure: produce the report (used by tests). fetch() just delays this.
+    build: function () {
+      var rep = TwelveData.map(MOCK_RAW); // runs the real parsers
+      // Synthesize what a live source can't give, so the full report renders.
+      var demo = {
+        resistance: '522.00', support: '519.00', orh: '521.20', orl: '519.90',
+        pmh: '521.80', pml: '519.20', regime: 'TREND', news: 'BULLISH',
+        newsHeadline: 'DEMO: cooler-than-expected CPI lifts risk appetite',
+        bid: '1.20', ask: '1.24', optVolume: '8400', oi: '12500', iv: '0.18', delta: '0.52'
+      };
+      Object.keys(demo).forEach(function (k) { rep.fields[k] = demo[k]; });
+      var synthesized = ['support/resistance', 'opening range high/low',
+        'pre-market high/low', 'news bias', '0DTE options chain (bid/ask/vol/OI/greeks)'];
+      rep.gaps = rep.gaps.filter(function (g) { return synthesized.indexOf(g) < 0; });
+      rep.filled = rep.filled.concat(['levels (demo)', 'news (demo)', '0DTE contract (demo)']);
+      rep.notes = ['DEMO MODE — levels and the 0DTE contract are synthetic, not live.']
+        .concat(rep.notes || []);
+      return rep;
+    },
+    fetch: function () {
+      var self = this;
+      return new Promise(function (resolve) {
+        setTimeout(function () { resolve(self.build()); }, 250);
+      });
+    }
+  };
+
+  var list = [Manual, MockData, TwelveData, AlphaVantage];
   var byId = {};
   list.forEach(function (a) { byId[a.id] = a; });
 

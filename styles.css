@@ -13,10 +13,14 @@
   --zinc-200: #e4e4e7;
   --zinc-100: #f4f4f5;
   --zinc-50:  #fafafa;
-  --emerald-300: #6ee7b7;
-  --emerald-400: #34d399;
-  --emerald-500: #10b981;
-  --emerald-950: #022c22;
+  /* gold accent (replaces the futures emerald) */
+  --gold-200: #f0e2a6;
+  --gold-300: #e6cd70;
+  --gold-400: #d4af37;
+  --gold-500: #c8a12e;
+  --gold-600: #9c7a1e;
+  --gold-950: #211904;
+  --gold-rgb: 212,175,55; /* for tints + inset rings */
   --rose-300: #fda4af;
   --rose-500: #f43f5e;
   --amber-300: #fcd34d;
@@ -51,13 +55,14 @@ body {
 .masthead { display: flex; flex-direction: column; gap: 12px; }
 .brandline { display: flex; align-items: center; gap: 12px; }
 .brand {
-  font-family: var(--mono); font-size: 13px; font-weight: 700;
-  letter-spacing: 0.3em; color: var(--emerald-400);
+  font-family: var(--mono); font-size: 14px; font-weight: 700;
+  letter-spacing: 0.3em; color: var(--gold-400);
 }
+/* matches futures chip: rounded bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-wider text-zinc-400 */
 .chip-tag {
   border-radius: 4px; background: var(--zinc-800); color: var(--zinc-400);
   padding: 2px 8px; font-family: var(--mono); font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.1em;
+  text-transform: uppercase; letter-spacing: 0.05em;
 }
 .title { margin: 0; font-size: 24px; font-weight: 600; color: var(--zinc-100); }
 .lede { margin: 0; max-width: 38em; font-size: 14px; line-height: 1.65; color: var(--zinc-400); }
@@ -73,17 +78,17 @@ select, input[type="text"], input[type="number"], input[type="password"] {
   background: var(--zinc-900); border: 1px solid var(--zinc-800); color: var(--zinc-100);
   border-radius: 8px; padding: 9px 11px; font-family: var(--mono); font-size: 13px; outline: none;
 }
-select:focus, input:focus { border-color: var(--emerald-500); }
-input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--emerald-500); }
+select:focus, input:focus { border-color: var(--gold-500); }
+input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--gold-500); }
 
 .btn-primary {
   display: inline-flex; align-items: center; gap: 8px;
-  background: var(--emerald-500); color: var(--emerald-950);
+  background: var(--gold-500); color: var(--gold-950);
   border: none; border-radius: 8px; padding: 10px 20px;
   font-family: var(--mono); font-size: 14px; font-weight: 600; cursor: pointer;
   transition: background-color .15s ease;
 }
-.btn-primary:hover { background: var(--emerald-400); }
+.btn-primary:hover { background: var(--gold-400); }
 .btn-primary:disabled { background: var(--zinc-700); color: var(--zinc-400); cursor: not-allowed; }
 
 .btn-ghost {
@@ -102,7 +107,7 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--emerald-
 .check { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono);
   font-size: 12px; color: var(--zinc-400); cursor: pointer; }
 .status { font-family: var(--mono); font-size: 12px; color: var(--zinc-500); }
-.status.ok { color: var(--emerald-400); }
+.status.ok { color: var(--gold-400); }
 .status.err { color: var(--rose-300); }
 .status.busy { color: var(--zinc-400); }
 .hint { font-family: var(--mono); font-size: 11px; color: var(--zinc-600); margin: 0; }
@@ -115,7 +120,7 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--emerald-
 .inputs-panel[hidden] { display: none; }
 fieldset { border: 1px solid var(--zinc-800); border-radius: 10px; margin: 0; padding: 12px 14px 14px; }
 legend { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
-  color: var(--emerald-400); padding: 0 6px; }
+  color: var(--gold-400); padding: 0 6px; }
 .lbl { display: flex; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 11px;
   text-transform: uppercase; letter-spacing: 0.05em; color: var(--zinc-500); }
 .lbl.row { flex-direction: row; align-items: center; gap: 8px; text-transform: none; }
@@ -129,7 +134,7 @@ legend { font-family: var(--mono); font-size: 11px; text-transform: uppercase; l
   border: 1px dashed var(--zinc-800); border-radius: 12px; padding: 64px 24px;
   text-align: center; font-family: var(--mono); font-size: 14px; color: var(--zinc-500);
 }
-.empty-state .accent { color: var(--emerald-400); }
+.empty-state .accent { color: var(--gold-400); }
 .error-box {
   border: 1px solid rgba(244,63,94,.4); background: rgba(244,63,94,.1);
   border-radius: 8px; padding: 12px 16px; font-family: var(--mono); font-size: 14px; color: var(--rose-300);
@@ -152,7 +157,8 @@ legend { font-family: var(--mono); font-size: 11px; text-transform: uppercase; l
   border-radius: 8px; padding: 8px 16px; font-family: var(--mono); font-size: 22px;
   font-weight: 700; text-transform: uppercase; white-space: nowrap;
 }
-.action-pill.call { background: rgba(16,185,129,.15); color: var(--emerald-300); box-shadow: inset 0 0 0 1px rgba(16,185,129,.4); }
+/* call = positive (gold), put = negative (rose), wait = amber, notrade = zinc */
+.action-pill.call { background: rgba(var(--gold-rgb),.15); color: var(--gold-300); box-shadow: inset 0 0 0 1px rgba(var(--gold-rgb),.4); }
 .action-pill.put { background: rgba(244,63,94,.15); color: var(--rose-300); box-shadow: inset 0 0 0 1px rgba(244,63,94,.4); }
 .action-pill.wait { background: rgba(245,158,11,.15); color: var(--amber-300); box-shadow: inset 0 0 0 1px rgba(245,158,11,.4); }
 .action-pill.notrade { background: rgba(113,113,122,.15); color: var(--zinc-300); box-shadow: inset 0 0 0 1px rgba(113,113,122,.4); }
@@ -176,13 +182,13 @@ dl { margin: 0; }
 .dl-row dd { margin: 0; font-variant-numeric: tabular-nums; color: var(--zinc-100); text-align: right; }
 .dl-row.top { border-top: 1px solid var(--zinc-800); padding-top: 8px; margin-top: 4px; }
 .val-rose { color: var(--rose-300); }
-.val-emerald { color: var(--emerald-300); }
+.val-emerald { color: var(--gold-300); } /* positive values render gold in this theme */
 .val-amber { color: var(--amber-300); font-weight: 600; }
 .dd-sub { display: block; font-family: var(--mono); font-size: 11px; color: var(--zinc-500); }
 
 .pill { display: inline-flex; align-items: center; border-radius: 4px; padding: 2px 8px;
   font-family: var(--mono); font-size: 11px; font-weight: 600; text-transform: uppercase; }
-.pill.pass, .pill.bullish { background: rgba(16,185,129,.15); color: var(--emerald-300); box-shadow: inset 0 0 0 1px rgba(16,185,129,.3); }
+.pill.pass, .pill.bullish { background: rgba(var(--gold-rgb),.15); color: var(--gold-300); box-shadow: inset 0 0 0 1px rgba(var(--gold-rgb),.3); }
 .pill.fail, .pill.bearish { background: rgba(244,63,94,.15); color: var(--rose-300); box-shadow: inset 0 0 0 1px rgba(244,63,94,.3); }
 .pill.neutral { background: rgba(113,113,122,.15); color: var(--zinc-300); box-shadow: inset 0 0 0 1px rgba(113,113,122,.3); }
 

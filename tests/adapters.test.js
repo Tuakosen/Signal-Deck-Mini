@@ -83,5 +83,56 @@ ok(rep.gaps.indexOf('RSI') >= 0, 'map: RSI listed as gap');
 ok(rep.gaps.indexOf('0DTE options chain (bid/ask/vol/OI/greeks)') >= 0, 'map: options chain always a gap');
 ok(rep.filled.indexOf('SPY price') >= 0, 'map: filled list populated');
 
+// ---- Alpha Vantage parsers ----
+var avq = A.avQuote({ 'Global Quote': {
+  '01. symbol': 'SPY', '02. open': '520.10', '03. high': '521.90', '04. low': '519.80',
+  '05. price': '521.40', '06. volume': '60000000', '08. previous close': '519.80',
+  '09. change': '1.60', '10. change percent': '0.3100%'
+} });
+ok(avq.price === 521.40 && avq.open === 520.10 && avq.pdc === 519.80, 'avQuote reads core fields');
+ok(avq.pct === 0.31, 'avQuote strips % from change percent');
+
+var avThrew = false;
+try { A.avQuote({ Note: 'call frequency limit' }); } catch (e) { avThrew = true; }
+ok(avThrew, 'avQuote throws on rate-limit Note');
+var avThrew2 = false;
+try { A.avSeries({ Information: 'premium endpoint' }, 'Technical Analysis: RSI'); } catch (e) { avThrew2 = true; }
+ok(avThrew2, 'avSeries throws on Information throttle');
+
+var avMacd = A.parseAvMacd({ 'Technical Analysis: MACD': {
+  '2026-05-20 15:55:00': { MACD: '0.50', MACD_Signal: '0.30', MACD_Hist: '0.20' },
+  '2026-05-20 15:50:00': { MACD: '0.40', MACD_Signal: '0.32', MACD_Hist: '0.08' }
+} });
+ok(avMacd.dir === 'BULL' && avMacd.histo === 'EXPANDING', 'parseAvMacd bull+expanding (newest key wins)');
+ok(A.avMacdSign({ 'Technical Analysis: MACD': {
+  '2026-05-20 15:55:00': { MACD: '-0.2', MACD_Signal: '0.1' } } }) === 'BEAR', 'avMacdSign bearish');
+ok(A.parseAvRsi({ 'Technical Analysis: RSI': {
+  '2026-05-20 15:55:00': { RSI: '58.4' }, '2026-05-20 15:50:00': { RSI: '40' } } }) === 58, 'parseAvRsi newest+rounded');
+ok(A.parseAvVwap({ 'Technical Analysis: VWAP': {
+  '2026-05-20 15:55:00': { VWAP: '520.55' } } }) === 520.55, 'parseAvVwap reads value');
+
+// mapAlphaVantage with a throttled indicator call
+var AVR = {
+  quote: { status: 'fulfilled', value: { 'Global Quote': {
+    '02. open': '520.10', '05. price': '521.40', '08. previous close': '519.80', '10. change percent': '0.31%' } } },
+  vwap: { status: 'fulfilled', value: { 'Technical Analysis: VWAP': { '2026-05-20 15:55:00': { VWAP: '520.50' } } } },
+  macd5: { status: 'fulfilled', value: { 'Technical Analysis: MACD': {
+    '2026-05-20 15:55:00': { MACD: '0.5', MACD_Signal: '0.3', MACD_Hist: '0.2' },
+    '2026-05-20 15:50:00': { MACD_Hist: '0.08' } } } },
+  macd15: { status: 'fulfilled', value: { Note: 'rate limit' } },   // throttled
+  rsi: { status: 'fulfilled', value: { 'Technical Analysis: RSI': { '2026-05-20 15:55:00': { RSI: '57' } } } },
+  qqq: { status: 'fulfilled', value: { 'Global Quote': { '05. price': '450', '10. change percent': '0.40%' } } }
+};
+var avRep = A.mapAlphaVantage(AVR);
+ok(avRep.fields.spy === '521.40', 'AV map: spy filled');
+ok(avRep.fields.vwap === '520.50', 'AV map: vwap filled');
+ok(avRep.fields.macdDir === 'BULL', 'AV map: macd filled');
+ok(avRep.fields.rsi === '57', 'AV map: rsi filled');
+ok(avRep.fields.qqq === 'BULL', 'AV map: qqq direction');
+ok(avRep.fields.macd15 === undefined, 'AV map: throttled macd15 left unfilled');
+ok(avRep.gaps.indexOf('MACD 15m') >= 0, 'AV map: throttled call listed as gap');
+ok(avRep.gaps.indexOf('VIX direction') >= 0, 'AV map: VIX always a gap (not fetched)');
+ok(avRep.gaps.indexOf('0DTE options chain (bid/ask/vol/OI/greeks)') >= 0, 'AV map: options chain a gap');
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

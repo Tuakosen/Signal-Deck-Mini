@@ -40,13 +40,17 @@
     var v = vals(j);
     var m0 = f(v[0].macd), s0 = f(v[0].macd_signal), h0 = f(v[0].macd_hist);
     var dir = m0 > s0 ? 'BULL' : m0 < s0 ? 'BEAR' : 'FLAT';
-    var histo = 'FLAT';
-    if (v[1] && h0 !== null) {
-      var a0 = Math.abs(h0), a1 = Math.abs(f(v[1].macd_hist));
-      if (a0 > a1 * 1.02) histo = 'EXPANDING';
-      else if (a0 < a1 * 0.98) histo = 'CONTRACTING';
-    }
+    var histo = v[1] ? histoState(h0, f(v[1].macd_hist)) : 'FLAT';
     return { dir: dir, histo: histo };
+  }
+
+  // Shared: is the latest histogram bar bigger or smaller than the previous?
+  function histoState(h0, h1) {
+    if (h0 === null || h1 === null) return 'FLAT';
+    var a0 = Math.abs(h0), a1 = Math.abs(h1);
+    if (a0 > a1 * 1.02) return 'EXPANDING';
+    if (a0 < a1 * 0.98) return 'CONTRACTING';
+    return 'FLAT';
   }
 
   function macdSign(j) {
@@ -200,7 +204,131 @@
     }
   };
 
-  var list = [Manual, TwelveData];
+  // --- Alpha Vantage parsers (different response shape) --------------------
+  function avGuard(j) {
+    if (!j) throw new Error('empty response');
+    if (j['Error Message']) throw new Error(j['Error Message']);
+    if (j.Note) throw new Error('rate limited (Alpha Vantage free tier ~25 req/day)');
+    if (j.Information) throw new Error(j.Information);
+  }
+
+  function avQuote(j) {
+    avGuard(j);
+    var g = j['Global Quote'] || j['Global quote'];
+    if (!g || g['05. price'] == null) throw new Error('no quote');
+    return {
+      price: f(g['05. price']), open: f(g['02. open']),
+      high: f(g['03. high']), low: f(g['04. low']),
+      pdc: f(g['08. previous close']), change: f(g['09. change']),
+      pct: f(g['10. change percent']) // parseFloat ignores trailing "%"
+    };
+  }
+
+  function avSeries(j, section) {
+    avGuard(j);
+    var ta = j[section];
+    if (!ta) throw new Error('missing ' + section);
+    var keys = Object.keys(ta).sort().reverse(); // datetime strings -> newest first
+    if (!keys.length) throw new Error('empty series');
+    return keys.map(function (k) { return ta[k]; });
+  }
+
+  function parseAvMacd(j) {
+    var v = avSeries(j, 'Technical Analysis: MACD');
+    var m0 = f(v[0].MACD), s0 = f(v[0].MACD_Signal), h0 = f(v[0].MACD_Hist);
+    var dir = m0 > s0 ? 'BULL' : m0 < s0 ? 'BEAR' : 'FLAT';
+    var histo = v[1] ? histoState(h0, f(v[1].MACD_Hist)) : 'FLAT';
+    return { dir: dir, histo: histo };
+  }
+
+  function avMacdSign(j) {
+    var v = avSeries(j, 'Technical Analysis: MACD');
+    var m = f(v[0].MACD), s = f(v[0].MACD_Signal);
+    return m > s ? 'BULL' : m < s ? 'BEAR' : 'NEUTRAL';
+  }
+
+  function parseAvRsi(j) {
+    var r = f(avSeries(j, 'Technical Analysis: RSI')[0].RSI);
+    return r === null ? null : Math.round(r);
+  }
+
+  function parseAvVwap(j) { return f(avSeries(j, 'Technical Analysis: VWAP')[0].VWAP); }
+
+  // --- Alpha Vantage adapter ----------------------------------------------
+  var AlphaVantage = {
+    id: 'alphavantage',
+    label: 'Alpha Vantage — live quote + indicators (API key)',
+    needsKey: true,
+    keyHint: 'Free key at alphavantage.co — free tier is ~25 requests/day (≈3 fetches/day here)',
+    base: 'https://www.alphavantage.co/query',
+
+    map: function (R) {
+      var fields = {}, filled = [], gaps = [], notes = [];
+      var got = function (k) { return R[k] && R[k].status === 'fulfilled'; };
+      var v = function (k) { return R[k].value; };
+
+      try {
+        if (!got('quote')) throw new Error('quote unavailable');
+        var qd = avQuote(v('quote'));
+        if (qd.price !== null) { fields.spy = qd.price.toFixed(2); filled.push('SPY price'); }
+        if (qd.open !== null) { fields.open = qd.open.toFixed(2); filled.push('day open'); }
+        if (qd.pdc !== null) { fields.pdc = qd.pdc.toFixed(2); filled.push('prior close'); }
+      } catch (e) { gaps.push('SPY quote'); }
+
+      try { if (!got('vwap')) throw 0; var w = parseAvVwap(v('vwap'));
+        if (w !== null) { fields.vwap = w.toFixed(2); filled.push('VWAP (5m)'); }
+      } catch (e) { gaps.push('VWAP'); }
+
+      try { if (!got('macd5')) throw 0; var m = parseAvMacd(v('macd5'));
+        fields.macdDir = m.dir; fields.histo = m.histo; filled.push('MACD 5m');
+      } catch (e) { gaps.push('MACD 5m'); }
+
+      try { if (!got('macd15')) throw 0; fields.macd15 = avMacdSign(v('macd15')); filled.push('MACD 15m'); }
+      catch (e) { gaps.push('MACD 15m'); }
+
+      try { if (!got('rsi')) throw 0; var r = parseAvRsi(v('rsi'));
+        if (r !== null) { fields.rsi = String(r); filled.push('RSI (5m)'); }
+      } catch (e) { gaps.push('RSI'); }
+
+      try { if (!got('qqq')) throw 0; var qq = avQuote(v('qqq'));
+        fields.qqq = dirFromPct(qq.pct); filled.push('QQQ direction');
+      } catch (e) { gaps.push('QQQ direction'); }
+
+      gaps.push('prior day high/low', 'VIX direction');
+      STATIC_GAPS.forEach(function (g) { gaps.push(g); });
+      notes.push('Alpha Vantage free tier is rate-limited (~25 req/day); each fetch uses ~6 calls.');
+      notes.push('Options chain, pre-market/opening-range levels, ES futures, yields and news are manual.');
+      return { fields: fields, filled: filled, gaps: gaps, notes: notes };
+    },
+
+    fetch: function (opts) {
+      if (typeof fetch === 'undefined') return Promise.reject(new Error('fetch unavailable'));
+      var key = opts.apiKey, sym = opts.symbol || 'SPY';
+      if (!key) return Promise.reject(new Error('API key required'));
+      var base = this.base, self = this;
+      function q(params) {
+        return fetch(base + '?' + params + '&apikey=' + encodeURIComponent(key))
+          .then(function (res) { return res.json(); });
+      }
+      var spec = {
+        quote: 'function=GLOBAL_QUOTE&symbol=' + sym,
+        vwap: 'function=VWAP&symbol=' + sym + '&interval=5min',
+        macd5: 'function=MACD&symbol=' + sym + '&interval=5min&series_type=close',
+        macd15: 'function=MACD&symbol=' + sym + '&interval=15min&series_type=close',
+        rsi: 'function=RSI&symbol=' + sym + '&interval=5min&time_period=14&series_type=close',
+        qqq: 'function=GLOBAL_QUOTE&symbol=QQQ'
+      };
+      var keys = Object.keys(spec);
+      return Promise.allSettled(keys.map(function (k) { return q(spec[k]); }))
+        .then(function (settled) {
+          var R = {};
+          keys.forEach(function (k, i) { R[k] = settled[i]; });
+          return self.map(R);
+        });
+    }
+  };
+
+  var list = [Manual, TwelveData, AlphaVantage];
   var byId = {};
   list.forEach(function (a) { byId[a.id] = a; });
 
@@ -211,7 +339,10 @@
     parseQuote: parseQuote, parseMacd: parseMacd, macdSign: macdSign,
     parseRsi: parseRsi, parseVwap: parseVwap, parseDailyPrior: parseDailyPrior,
     dirFromPct: dirFromPct, vixDir: vixDir, volumeFlow: volumeFlow,
-    mapTwelveData: TwelveData.map
+    histoState: histoState,
+    avQuote: avQuote, avSeries: avSeries, parseAvMacd: parseAvMacd,
+    avMacdSign: avMacdSign, parseAvRsi: parseAvRsi, parseAvVwap: parseAvVwap,
+    mapTwelveData: TwelveData.map, mapAlphaVantage: AlphaVantage.map
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

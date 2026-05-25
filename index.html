@@ -3,53 +3,51 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Signal Deck Mini — SPY 0DTE Options</title>
+<title>Signal Deck Mini — SPY 0DTE options signal engine</title>
+<meta name="description" content="SPY 0DTE options day-trading signal analysis for paper-trading practice. Not financial advice.">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <span class="logo">▚</span>
-    <div>
-      <h1>SIGNAL DECK <span class="mini">MINI</span></h1>
-      <p class="tag">SPY 0DTE Options · Decision Engine</p>
+<main class="wrap">
+
+  <header class="masthead">
+    <div class="brandline">
+      <span class="brand">SIGNAL&nbsp;DECK</span>
+      <span class="chip-tag">0DTE Options</span>
     </div>
-  </div>
-  <div class="clock" id="clock">--:-- ET</div>
-</header>
+    <h1 class="title">SPY 0DTE options signal engine</h1>
+    <p class="lede">
+      Runs an eight-step intraday analysis — MACD momentum, RSI + VWAP, volume/CVD
+      flow, entry-timeframe selection, historical pattern match and a news/macro scan —
+      into one decisive 0DTE options signal. Pull readings from a live source or enter
+      them by hand.
+    </p>
+  </header>
 
-<div class="disclaimer" role="note">
-  <strong>PAPER TRADING EDUCATION ONLY — NOT FINANCIAL ADVICE.</strong>
-  Never trade real money on AI-generated signals. 0DTE options are extremely high-risk:
-  premiums decay fast and can go to zero. If the setup is unclear, the answer is NO OPTIONS TRADE.
-</div>
+  <section class="controls">
+    <div class="control-row">
+      <label class="field">Data source
+        <select id="provider"></select>
+      </label>
+      <label class="field" id="keyWrap">API key
+        <input type="password" id="apiKey" placeholder="provider key">
+      </label>
+      <button id="generate" class="btn-primary">Generate signal</button>
+    </div>
+    <div class="control-row2">
+      <label class="check" id="rememberWrap"><input type="checkbox" id="rememberKey"> Remember key</label>
+      <button id="example" class="btn-ghost">Load example</button>
+      <button id="toggleInputs" class="btn-ghost" aria-expanded="false">Manual inputs ▾</button>
+      <span id="fetchStatus" class="status"></span>
+    </div>
+    <p class="hint" id="keyHint"></p>
+  </section>
 
-<main class="layout">
-  <!-- ============ INPUTS ============ -->
-  <section class="panel inputs">
-    <h2>Market Readings</h2>
-    <p class="hint">Pull what you can from a live source, then fill the rest (options chain,
-      pre-market/opening-range levels, news) by hand. The engine applies the 8-step framework
-      and its NO-TRADE gates to whatever is in the form.</p>
-
-    <fieldset>
-      <legend>Data Source</legend>
-      <div class="grid2">
-        <label>Provider <select id="provider"></select></label>
-        <label id="keyWrap">API Key <input type="password" id="apiKey" placeholder="provider key"></label>
-      </div>
-      <div class="srcrow">
-        <label class="check"><input type="checkbox" id="rememberKey"> Remember key (this browser)</label>
-        <button id="fetchLive" class="primary small">Fetch Live</button>
-      </div>
-      <p class="hint" id="keyHint"></p>
-      <div id="fetchStatus" class="status"></div>
-    </fieldset>
-
+  <section id="inputsPanel" class="inputs-panel" hidden>
     <fieldset>
       <legend>Session &amp; Price</legend>
       <div class="grid2">
-        <label>Session
+        <label class="lbl">Session
           <select id="session">
             <option value="AUTO">Auto-detect (ET)</option>
             <option value="RTH">RTH</option>
@@ -58,42 +56,42 @@
             <option value="CLOSED">Closed</option>
           </select>
         </label>
-        <label>SPY Price <input type="number" id="spy" step="0.01" placeholder="521.40"></label>
+        <label class="lbl">SPY Price <input type="number" id="spy" step="0.01" placeholder="521.40"></label>
       </div>
     </fieldset>
 
     <fieldset>
       <legend>Key Levels</legend>
       <div class="grid3">
-        <label>VWAP <input type="number" id="vwap" step="0.01"></label>
-        <label>Resistance <input type="number" id="resistance" step="0.01"></label>
-        <label>Support <input type="number" id="support" step="0.01"></label>
-        <label>Pre-Mkt High <input type="number" id="pmh" step="0.01"></label>
-        <label>Pre-Mkt Low <input type="number" id="pml" step="0.01"></label>
-        <label>Prior Day High <input type="number" id="pdh" step="0.01"></label>
-        <label>Prior Day Low <input type="number" id="pdl" step="0.01"></label>
-        <label>Prior Day Close <input type="number" id="pdc" step="0.01"></label>
-        <label>Day Open <input type="number" id="open" step="0.01"></label>
-        <label>Opening Range High <input type="number" id="orh" step="0.01"></label>
-        <label>Opening Range Low <input type="number" id="orl" step="0.01"></label>
-        <label>VWAP Chop Band $ <input type="number" id="vwapBand" step="0.01" placeholder="auto"></label>
+        <label class="lbl">VWAP <input type="number" id="vwap" step="0.01"></label>
+        <label class="lbl">Resistance <input type="number" id="resistance" step="0.01"></label>
+        <label class="lbl">Support <input type="number" id="support" step="0.01"></label>
+        <label class="lbl">Pre-Mkt High <input type="number" id="pmh" step="0.01"></label>
+        <label class="lbl">Pre-Mkt Low <input type="number" id="pml" step="0.01"></label>
+        <label class="lbl">Prior Day High <input type="number" id="pdh" step="0.01"></label>
+        <label class="lbl">Prior Day Low <input type="number" id="pdl" step="0.01"></label>
+        <label class="lbl">Prior Day Close <input type="number" id="pdc" step="0.01"></label>
+        <label class="lbl">Day Open <input type="number" id="open" step="0.01"></label>
+        <label class="lbl">Opening Range High <input type="number" id="orh" step="0.01"></label>
+        <label class="lbl">Opening Range Low <input type="number" id="orl" step="0.01"></label>
+        <label class="lbl">VWAP Chop Band $ <input type="number" id="vwapBand" step="0.01" placeholder="auto"></label>
       </div>
     </fieldset>
 
     <fieldset>
-      <legend>Momentum (Steps 3–5)</legend>
+      <legend>Momentum</legend>
       <div class="grid3">
-        <label>MACD 5m
+        <label class="lbl">MACD 5m
           <select id="macdDir"><option value="FLAT">Flat</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select>
         </label>
-        <label>Histogram
+        <label class="lbl">Histogram
           <select id="histo"><option value="FLAT">Flat</option><option value="EXPANDING">Expanding</option><option value="CONTRACTING">Contracting</option></select>
         </label>
-        <label>MACD 15m
+        <label class="lbl">MACD 15m
           <select id="macd15"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select>
         </label>
-        <label>RSI <input type="number" id="rsi" step="1" min="0" max="100" placeholder="58"></label>
-        <label>Volume Flow
+        <label class="lbl">RSI <input type="number" id="rsi" step="1" min="0" max="100" placeholder="58"></label>
+        <label class="lbl">Volume Flow
           <select id="volume">
             <option value="MIXED">Mixed</option>
             <option value="CONFIRM_UP">Confirms up</option>
@@ -101,68 +99,71 @@
             <option value="WEAK">Weak / no participation</option>
           </select>
         </label>
-        <label>Regime
+        <label class="lbl">Regime
           <select id="regime"><option value="CHOP">Chop</option><option value="TREND">Trend</option><option value="BREAKOUT">Breakout</option><option value="RANGE">Range</option></select>
         </label>
       </div>
     </fieldset>
 
     <fieldset>
-      <legend>Cross-Market &amp; Macro (Steps 1 &amp; 8)</legend>
+      <legend>Cross-Market &amp; Macro</legend>
       <div class="grid3">
-        <label>QQQ <select id="qqq"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select></label>
-        <label>ES Futures <select id="es"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select></label>
-        <label>VIX <select id="vix"><option value="FLAT">Flat</option><option value="UP">Rising</option><option value="DOWN">Falling</option></select></label>
-        <label>10Y Yield <select id="yield10"><option value="FLAT">Flat</option><option value="UP">Rising</option><option value="DOWN">Falling</option></select></label>
-        <label>News Bias <select id="news"><option value="NEUTRAL">Neutral</option><option value="BULLISH">Bullish</option><option value="BEARISH">Bearish</option></select></label>
-        <label class="check">News imminent?
-          <input type="checkbox" id="newsImminent">
-        </label>
+        <label class="lbl">QQQ <select id="qqq"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select></label>
+        <label class="lbl">ES Futures <select id="es"><option value="NEUTRAL">Neutral</option><option value="BULL">Bullish</option><option value="BEAR">Bearish</option></select></label>
+        <label class="lbl">VIX <select id="vix"><option value="FLAT">Flat</option><option value="UP">Rising</option><option value="DOWN">Falling</option></select></label>
+        <label class="lbl">10Y Yield <select id="yield10"><option value="FLAT">Flat</option><option value="UP">Rising</option><option value="DOWN">Falling</option></select></label>
+        <label class="lbl">News Bias <select id="news"><option value="NEUTRAL">Neutral</option><option value="BULLISH">Bullish</option><option value="BEARISH">Bearish</option></select></label>
+        <label class="lbl row"><input type="checkbox" id="newsImminent"> News imminent</label>
       </div>
-      <label>Top Headline <input type="text" id="newsHeadline" placeholder="e.g. Cooler-than-expected CPI"></label>
+      <label class="lbl" style="margin-top:10px">Top Headline <input type="text" id="newsHeadline" placeholder="e.g. Cooler-than-expected CPI"></label>
     </fieldset>
 
     <fieldset>
-      <legend>0DTE Contract (Step 2)</legend>
+      <legend>0DTE Contract</legend>
       <div class="grid3">
-        <label>Bid <input type="number" id="bid" step="0.01"></label>
-        <label>Ask <input type="number" id="ask" step="0.01"></label>
-        <label>Premium (opt) <input type="number" id="premium" step="0.01" placeholder="mid"></label>
-        <label>Volume <input type="number" id="optVolume" step="1"></label>
-        <label>Open Interest <input type="number" id="oi" step="1"></label>
-        <label>IV % <input type="number" id="iv" step="0.01" placeholder="0.18"></label>
-        <label>Delta <input type="number" id="delta" step="0.01"></label>
-        <label>Gamma <input type="number" id="gamma" step="0.01"></label>
-        <label>Theta <input type="number" id="theta" step="0.01"></label>
+        <label class="lbl">Bid <input type="number" id="bid" step="0.01"></label>
+        <label class="lbl">Ask <input type="number" id="ask" step="0.01"></label>
+        <label class="lbl">Premium (opt) <input type="number" id="premium" step="0.01" placeholder="mid"></label>
+        <label class="lbl">Volume <input type="number" id="optVolume" step="1"></label>
+        <label class="lbl">Open Interest <input type="number" id="oi" step="1"></label>
+        <label class="lbl">IV % <input type="number" id="iv" step="0.01" placeholder="0.18"></label>
+        <label class="lbl">Delta <input type="number" id="delta" step="0.01"></label>
+        <label class="lbl">Gamma <input type="number" id="gamma" step="0.01"></label>
+        <label class="lbl">Theta <input type="number" id="theta" step="0.01"></label>
       </div>
     </fieldset>
 
     <fieldset>
       <legend>Risk Plan</legend>
       <div class="grid3">
-        <label>Stop % of premium <input type="number" id="stopPct" step="0.05" value="0.30"></label>
-        <label>Target 1 % <input type="number" id="t1Pct" step="0.05" value="0.60"></label>
-        <label>Target 2 % <input type="number" id="t2Pct" step="0.05" value="1.20"></label>
+        <label class="lbl">Stop % of premium <input type="number" id="stopPct" step="0.05" value="0.30"></label>
+        <label class="lbl">Target 1 % <input type="number" id="t1Pct" step="0.05" value="0.60"></label>
+        <label class="lbl">Target 2 % <input type="number" id="t2Pct" step="0.05" value="1.20"></label>
       </div>
     </fieldset>
 
-    <div class="actions">
-      <button id="analyze" class="primary">Analyze</button>
-      <button id="example" class="ghost">Load Example</button>
-      <button id="reset" class="ghost">Reset</button>
+    <div class="panel-actions">
+      <button id="analyze" class="btn-primary">Analyze inputs</button>
+      <button id="reset" class="btn-ghost">Reset</button>
     </div>
   </section>
 
-  <!-- ============ OUTPUT ============ -->
-  <section class="panel output">
-    <div id="banner" class="banner idle">Enter readings and press <b>Analyze</b></div>
-    <div id="report" class="report"></div>
-  </section>
-</main>
+  <div id="output">
+    <div id="empty" class="empty-state">
+      No signal yet — pick a data source and hit <span class="accent">Generate signal</span>.
+    </div>
+    <div id="error" class="error-box" hidden></div>
+    <article id="card" class="card" hidden></article>
+  </div>
 
-<footer class="foot">
-  Signal Deck Mini · paper-trading education · no live market data · not financial advice
-</footer>
+  <footer class="page-footer">
+    <strong>Paper-trading education only.</strong> This is not financial advice. Never trade
+    real money based solely on AI-generated signals. 0DTE options are extremely high-risk —
+    premiums decay fast from time decay, IV changes and poor liquidity, and can go to zero
+    the same day.
+  </footer>
+
+</main>
 
 <script src="engine.js"></script>
 <script src="adapters.js"></script>

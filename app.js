@@ -1,17 +1,33 @@
-/* Signal Deck Mini — DOM wiring + report rendering. Logic lives in engine.js. */
+/* Signal Deck Mini — UI wiring + signal-card renderer. Logic lives in engine.js. */
 (function () {
   'use strict';
   var E = window.SignalEngine;
+  var ADAPTERS = window.SignalAdapters;
   var $ = function (id) { return document.getElementById(id); };
+  var $m = E.money;
+  var LS_KEY = 'sdm_apikey', LS_PROV = 'sdm_provider';
+
+  var SOURCES = [
+    'https://finance.yahoo.com/quote/SPY',
+    'https://finance.yahoo.com/quote/SPY/options',
+    'https://www.nasdaq.com/market-activity/etf/spy/option-chain',
+    'https://www.tradingview.com/symbols/AMEX-SPY/',
+    'https://www.cboe.com/tradable_products/vix/'
+  ];
 
   function val(id) { var el = $(id); return el ? el.value.trim() : ''; }
   function checked(id) { var el = $(id); return !!(el && el.checked); }
+  function n(v) { return (v === null || v === undefined || v === '') ? '—' : v; }
+  function pct(v) { return v === null || v === undefined ? '—' : Math.round(v * 100) + '%'; }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
 
   function collect() {
     return {
-      session: val('session'),
-      spy: val('spy'),
-      vwapBand: val('vwapBand'),
+      session: val('session'), spy: val('spy'), vwapBand: val('vwapBand'),
       levels: {
         vwap: val('vwap'), resistance: val('resistance'), support: val('support'),
         pmh: val('pmh'), pml: val('pml'), pdh: val('pdh'), pdl: val('pdl'),
@@ -26,181 +42,235 @@
         volume: val('optVolume'), oi: val('oi'), iv: val('iv'),
         delta: val('delta'), gamma: val('gamma'), theta: val('theta')
       },
-      stopPct: val('stopPct'), t1Pct: val('t1Pct'), t2Pct: val('t2Pct'),
-      now: new Date()
+      stopPct: val('stopPct'), t1Pct: val('t1Pct'), t2Pct: val('t2Pct'), now: new Date()
     };
   }
 
-  var $m = E.money;
-  function n(v, d) { return (v === null || v === undefined || v === '') ? (d || '—') : v; }
-  function pct(v) { return v === null || v === undefined ? '—' : Math.round(v * 100) + '%'; }
-  function esc(s) {
-    return String(s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
-    });
-  }
-
-  function bannerClass(action) {
-    return action === 'BUY CALL' ? 'call'
-      : action === 'BUY PUT' ? 'put'
-      : action === 'WAIT' ? 'wait' : 'notrade';
+  // ---- small builders ----
+  function actionClass(a) {
+    return a === 'BUY CALL' ? 'call' : a === 'BUY PUT' ? 'put' : a === 'WAIT' ? 'wait' : 'notrade';
   }
   function ratingClass(r) {
-    return r === 'PASS' || r === 'BULLISH' ? 'pass'
-      : r === 'FAIL' || r === 'BEARISH' ? 'fail' : 'neutral';
+    return (r === 'PASS' || r === 'BULLISH') ? 'pass'
+      : (r === 'FAIL' || r === 'BEARISH') ? 'fail' : 'neutral';
+  }
+  function pill(label) { return '<span class="pill ' + ratingClass(label) + '">' + esc(label) + '</span>'; }
+  function dlRow(k, v, cls, extra) {
+    return '<div class="dl-row' + (extra ? ' ' + extra : '') + '"><dt>' + esc(k) + '</dt>' +
+      '<dd' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</dd></div>';
+  }
+  function section(title, body, divider) {
+    return '<section class="section' + (divider ? ' section--divider' : '') + '">' +
+      '<h3 class="section-title">' + title + '</h3>' + body + '</section>';
   }
 
-  function row(k, v) { return '<div class="row"><span>' + k + '</span><span>' + v + '</span></div>'; }
-
-  function render(r) {
-    var b = $('banner');
-    b.className = 'banner ' + bannerClass(r.action);
-    b.innerHTML = '<span>' + r.action + '</span>' +
-      '<small>SPY ' + (r.spy !== null ? '$' + r.spy.toFixed(2) : '—') +
-      ' · ' + r.sessionLabel + ' · ' + r.confidence + ' · ' + r.tradeQuality + '</small>';
-
-    var L = r.levels, c = r.contract, p = r.plan, sc = r.scorecard;
+  function renderCard(r) {
+    var c = r.contract, p = r.plan, L = r.levels, sc = r.scorecard;
     var html = '';
 
-    // Market bias
-    html += sec('Market Bias',
-      '<div class="chips">' +
-        chip('Bias ' + r.bias, ratingClass(r.bias)) +
-        chip('Trend ' + r.trend, 'neutral') +
-        chip('QQQ ' + r.cross.qqq, ratingClass(r.cross.qqq)) +
-        chip('ES ' + r.cross.es, ratingClass(r.cross.es)) +
-        chip('VIX ' + r.cross.vix, ratingClass(r.cross.vix)) +
-        chip('10Y ' + r.cross.yield10, ratingClass(r.cross.yield10)) +
-        chip('Score ' + r.biasScore, 'neutral') +
-      '</div>');
+    // Header
+    html += '<header class="card-header">' +
+      '<div class="hdr-left">' +
+        '<span class="action-pill ' + actionClass(r.action) + '">' + esc(r.action) + '</span>' +
+        '<div><div class="price">' + (r.spy !== null ? '$' + r.spy.toFixed(2) : '—') + '</div>' +
+        '<div class="sub">SPY · 0DTE</div></div>' +
+      '</div>' +
+      '<div class="hdr-stats">' +
+        '<div class="hdr-stat"><div class="sub">Session</div><div class="v">' + esc(r.sessionLabel) + '</div></div>' +
+        '<div class="hdr-stat"><div class="sub">Confidence</div><div class="v">' + esc(r.confidence) + '</div></div>' +
+        '<div class="hdr-stat"><div class="sub">Quality</div><div class="v">' + esc(r.tradeQuality) + '</div></div>' +
+      '</div>' +
+    '</header>';
 
-    // Gates (only when present)
+    // Gates (why no/limited trade)
     if (r.gates.length) {
       var gl = '<ul class="gates">';
       r.gates.forEach(function (g) {
-        gl += '<li><span class="tag">' + g.tag + '</span>' + esc(g.msg) + '</li>';
+        gl += '<li><span class="g-tag">' + esc(g.tag) + '</span>' + esc(g.msg) + '</li>';
       });
       gl += '</ul>';
-      html += sec('Why No / Limited Trade', gl);
+      html += section('Why no / limited trade', gl, true);
     }
 
-    // Contract
-    var cd = '<div class="kv">' +
-      row('Direction', c.direction) +
-      row('Ticker', c.ticker + ' (0DTE)') +
-      row('Expiration', c.expDate) +
-      row('Strike', c.strike !== null ? '$' + c.strike + ' ' + c.type : '—') +
-      row('Premium', $m(c.premium)) +
-      row('Total Cost', c.totalCost !== null ? '$' + c.totalCost : '—') +
-      row('Bid / Ask', $m(c.bid) + ' / ' + $m(c.ask)) +
-      row('Spread', $m(c.spread)) +
-      row('Volume', n(c.volume)) +
-      row('Open Interest', n(c.oi)) +
-      row('Delta', n(c.delta)) +
-      row('IV', c.iv !== null ? pct(c.iv) : '—') +
-      '</div>';
-    html += sec('0DTE Contract Selection', cd);
+    // Entry Plan | Key Levels
+    var ep = '<dl>' +
+      dlRow('Entry', $m(p.entry)) +
+      dlRow('Stop', '<span class="val-rose">' + $m(p.stop) + '</span>' +
+        (p.maxRisk !== null ? '<span class="dd-sub">−$' + p.maxRisk + '/contract</span>' : '')) +
+      dlRow('Target 1', '<span class="val-emerald">' + $m(p.t1) + '</span>' +
+        (p.maxProfitT1 !== null ? '<span class="dd-sub">+$' + p.maxProfitT1 + '/contract</span>' : '')) +
+      dlRow('Target 2', '<span class="val-emerald">' + $m(p.t2) + '</span>' +
+        (p.maxProfitT2 !== null ? '<span class="dd-sub">+$' + p.maxProfitT2 + '/contract</span>' : '')) +
+      dlRow('Risk / Reward', p.rr !== null ? '1:' + p.rr.toFixed(1) : '—', 'val-amber', 'top') +
+      '</dl>';
 
-    // Entry plan
-    var ep = '<div class="kv">' +
-      row('Entry Premium', $m(p.entry)) +
-      row('Stop Premium', $m(p.stop)) +
-      row('Target 1', $m(p.t1)) +
-      row('Target 2', $m(p.t2)) +
-      row('Max Risk', p.maxRisk !== null ? '$' + p.maxRisk + '/contract' : '—') +
-      row('Max Profit T1', p.maxProfitT1 !== null ? '$' + p.maxProfitT1 : '—') +
-      row('Max Profit T2', p.maxProfitT2 !== null ? '$' + p.maxProfitT2 : '—') +
-      row('Risk / Reward', p.rr !== null ? '1:' + p.rr.toFixed(1) : '—') +
-      row('Setup Style', p.style) +
-      row('Entry Timeframe', p.entryTf) +
-      row('Confirm Timeframe', p.confirmTf) +
-      row('Higher-TF Bias', p.htf) +
-      '</div>';
+    var kl = '<dl>' +
+      dlRow('VWAP', $m(L.vwap) + ' <span class="dd-sub" style="display:inline">(' + r.vwapState + ')</span>') +
+      dlRow('Resistance', $m(L.resistance)) +
+      dlRow('Support', $m(L.support)) +
+      dlRow('Prior Day High', $m(L.pdh)) +
+      dlRow('Prior Day Low', $m(L.pdl)) +
+      dlRow('Day Open', $m(L.open)) +
+      '</dl>';
+
+    html += '<div class="grid-split">' +
+      '<section class="section"><h3 class="section-title">Entry Plan</h3>' + ep + '</section>' +
+      '<section class="section"><h3 class="section-title">Key Levels</h3>' + kl + '</section>' +
+    '</div>';
+
+    // Contract selection
+    var contract = '<dl>' +
+      dlRow('Direction', esc(c.direction)) +
+      dlRow('Strike', c.strike !== null ? '$' + c.strike + ' · ' + esc(c.type) : '—') +
+      dlRow('Premium', $m(c.premium) + (c.totalCost !== null ? '<span class="dd-sub">$' + c.totalCost + '/contract</span>' : '')) +
+      dlRow('Bid / Ask', $m(c.bid) + ' / ' + $m(c.ask)) +
+      dlRow('Spread', $m(c.spread)) +
+      dlRow('Volume / OI', n(c.volume) + ' / ' + n(c.oi)) +
+      dlRow('Delta / IV', n(c.delta) + ' / ' + (c.iv !== null ? pct(c.iv) : '—')) +
+      '</dl>';
     if (r.tradeable && p.spyTrigger !== null) {
-      ep += '<p class="prose" style="margin-top:10px">Enter when SPY <b>' + p.spyTriggerDir +
-        ' $' + p.spyTrigger.toFixed(2) + '</b> on the ' + p.entryTf +
-        ' candle close (confirm on ' + p.confirmTf + '). Invalidation: exit if SPY ' +
-        (r.action === 'BUY CALL' ? 'breaks below' : 'breaks above') + ' $' +
+      contract += '<p class="prose" style="margin-top:12px">Trigger: enter when SPY <strong>' +
+        esc(p.spyTriggerDir) + ' $' + p.spyTrigger.toFixed(2) + '</strong> on the ' + esc(p.entryTf) +
+        ' close (confirm on ' + esc(p.confirmTf) + '). Style: ' + esc(p.style) + '. Invalidation: ' +
+        (r.action === 'BUY CALL' ? 'below' : 'above') + ' $' +
         (p.invalidation !== null ? p.invalidation.toFixed(2) : '—') + '.</p>';
     }
-    html += sec('0DTE Entry Plan', ep);
-
-    // Key levels
-    html += sec('Key SPY Levels', '<div class="kv">' +
-      row('VWAP', $m(L.vwap) + ' (' + r.vwapState + ')') +
-      row('Resistance', $m(L.resistance)) +
-      row('Support', $m(L.support)) +
-      row('Pre-Mkt High', $m(L.pmh)) +
-      row('Pre-Mkt Low', $m(L.pml)) +
-      row('Prior Day High', $m(L.pdh)) +
-      row('Prior Day Low', $m(L.pdl)) +
-      row('Prior Day Close', $m(L.pdc)) +
-      row('Day Open', $m(L.open)) +
-      row('Opening Range Hi', $m(L.orh)) +
-      row('Opening Range Lo', $m(L.orl)) +
-      '</div>');
+    html += section('0DTE Contract Selection', contract, true);
 
     // Scorecard
-    var sct = '<div class="scorecard">' +
-      scLine('MACD Momentum', sc.macd) +
-      scLine('RSI + VWAP', sc.rsivwap) +
-      scLine('Volume / CVD', sc.volume) +
-      scLine('Entry Timeframe', sc.timeframe) +
-      scLine('Historical Match', sc.history) +
-      scLine('News / Macro', sc.news) +
-      scLine('Options Chain', sc.options) +
-      '</div>';
-    html += sec('Scorecard', sct);
+    var rows = [
+      ['MACD Momentum', sc.macd], ['RSI + VWAP', sc.rsivwap], ['Volume / CVD', sc.volume],
+      ['Entry Timeframe', sc.timeframe], ['Historical Match', sc.history],
+      ['News / Macro', sc.news], ['Options Chain', sc.options]
+    ];
+    var scList = '<ul class="scorecard">';
+    rows.forEach(function (row) {
+      scList += '<li><div class="sc-pill">' + pill(row[1].r) + '</div>' +
+        '<div><div class="sc-name">' + row[0] + '</div>' +
+        '<p class="sc-reason">' + esc(row[1].reason) + '</p></div></li>';
+    });
+    scList += '</ul>';
+    html += section('Scorecard', scList, true);
 
     // Reasoning
-    html += sec('Reasoning', '<p class="prose">' + esc(r.reasoning) + '</p>');
+    html += section('Reasoning', '<p class="prose">' + esc(r.reasoning) + '</p>', true);
 
-    // Exit triggers (only when there is a live trade)
-    if (r.tradeable) {
-      html += sec('Exit Triggers', '<ul class="exits">' +
-        li('Take partial profit at Target 1 (' + $m(p.t1) + ').') +
-        li('Hold for Target 2 only if SPY keeps confirming direction.') +
-        li('Hard stop if premium hits ' + $m(p.stop) + '.') +
-        li('Exit if SPY ' + (r.action === 'BUY CALL' ? 'loses VWAP' : 'reclaims VWAP') + ' against you.') +
-        li('Exit if MACD momentum flips or volume dries up.') +
-        li('Do not hold past 15:55 ET — 0DTE decay accelerates into the close.') +
-        '</ul>');
-    }
+    // Exit Triggers | Risk Management
+    var exits = r.tradeable ? [
+      'Take partial profit at Target 1 (' + $m(p.t1) + ').',
+      'Hold for Target 2 only if SPY keeps confirming direction.',
+      'Hard stop if premium hits ' + $m(p.stop) + '.',
+      'Exit if SPY ' + (r.action === 'BUY CALL' ? 'loses VWAP' : 'reclaims VWAP') + ' against you.',
+      'Exit if MACD momentum flips or volume dries up.',
+      'Do not hold past 15:55 ET — 0DTE decay accelerates into the close.'
+    ] : [
+      'No live trade — nothing to manage.',
+      'Re-check once the gates above clear (VWAP reclaim/rejection, clean MACD, valid contract).'
+    ];
+    var risk = [
+      'Paper-trading education only; risk 1–2% of a paper account per trade.',
+      'Start with 1 contract; never average down on a losing option.',
+      'Skip wide spreads, thin volume, and VWAP chop.',
+      'Max 3 trades/day; stop after 2 consecutive losses.',
+      'Avoid entering into major scheduled news.'
+    ];
+    html += '<div class="grid-split">' +
+      '<section class="section"><h3 class="section-title">Exit Triggers</h3>' + bullets(exits) + '</section>' +
+      '<section class="section"><h3 class="section-title">Risk Management</h3>' + bullets(risk) + '</section>' +
+    '</div>';
 
-    // News
-    html += sec('News Impact', '<div class="kv">' +
-      row('Headline', esc(r.news.headline)) +
-      row('Sentiment', r.news.sentiment) +
-      '</div><p class="prose" style="margin-top:8px">' + esc(r.news.shortImpact) +
-      ' ' + esc(r.news.optionsImpact) + '</p>');
+    // News impact
+    html += '<section class="section section--divider">' +
+      '<div class="news-row"><h3 class="section-title">News Impact</h3>' + pill(r.news.sentiment) + '</div>' +
+      '<p class="news-head">' + esc(r.news.headline) + '</p>' +
+      '<p class="news-impact">' + esc(r.news.shortImpact) + ' ' + esc(r.news.optionsImpact) + '</p>' +
+    '</section>';
 
-    // Final decision
-    html += sec('Final Decision', '<p class="prose"><b>' + r.action + '</b> — ' +
-      esc(r.finalSummary) + '</p>');
+    // Sources
+    var srcs = '<ul class="sources">';
+    SOURCES.forEach(function (u) {
+      srcs += '<li><a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(u) + '</a></li>';
+    });
+    srcs += '</ul>';
+    html += section('Sources To Check', srcs, true);
 
-    $('report').innerHTML = html;
+    // Footer
+    html += '<footer class="card-footer">Generated ' + esc(new Date().toLocaleString()) +
+      ' · Paper-trading education only — not financial advice.</footer>';
+
+    var card = $('card');
+    card.innerHTML = html;
+    showCard();
   }
 
-  function sec(title, body) { return '<div class="sec"><h3>' + title + '</h3>' + body + '</div>'; }
-  function chip(text, cls) { return '<span class="chip ' + cls + '">' + esc(text) + '</span>'; }
-  function li(t) { return '<li>' + esc(t) + '</li>'; }
-  function scLine(name, cell) {
-    return '<div class="line"><span class="name">' + name + '</span>' +
-      chip(cell.r, ratingClass(cell.r)) +
-      '<span class="reason">' + esc(cell.reason) + '</span></div>';
+  function bullets(items) {
+    var h = '<ul class="bullets">';
+    items.forEach(function (t) { h += '<li><span class="mk">▸</span><span>' + esc(t) + '</span></li>'; });
+    return h + '</ul>';
   }
 
-  // --- Clock ---------------------------------------------------------------
-  function tickClock() {
-    var s = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit',
-      second: '2-digit', weekday: 'short', hour12: false
-    }).format(new Date());
-    var sess = E.detectSession(new Date()).session;
-    $('clock').textContent = s + ' ET · ' + sess;
+  function showCard() { $('card').hidden = false; $('empty').hidden = true; $('error').hidden = true; }
+  function showError(msg) {
+    $('error').textContent = msg; $('error').hidden = false;
+    $('card').hidden = true; $('empty').hidden = true;
   }
 
-  // --- Example data --------------------------------------------------------
+  function analyze() {
+    try { renderCard(E.runAnalysis(collect())); }
+    catch (err) { showError('Error: ' + (err.message || String(err))); }
+  }
+
+  // ---- data source ----
+  function applyFields(fields) {
+    Object.keys(fields).forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = !!fields[id]; else el.value = fields[id];
+    });
+  }
+  function currentAdapter() { return ADAPTERS.byId[val('provider')] || ADAPTERS.byId.manual; }
+  function setStatus(cls, html) { var s = $('fetchStatus'); s.className = 'status ' + (cls || ''); s.innerHTML = html || ''; }
+
+  function syncSourceUI() {
+    var a = currentAdapter(), needs = !!a.needsKey;
+    $('keyWrap').hidden = !needs;
+    $('rememberWrap').hidden = !needs;
+    $('keyHint').textContent = a.keyHint || '';
+  }
+
+  function setLoading(on) {
+    var b = $('generate');
+    b.disabled = on;
+    b.innerHTML = on ? '<span class="spinner"></span>Analyzing…' : 'Generate signal';
+  }
+
+  function persistKey() {
+    try {
+      if (checked('rememberKey')) { localStorage.setItem(LS_KEY, val('apiKey')); localStorage.setItem(LS_PROV, val('provider')); }
+      else localStorage.removeItem(LS_KEY);
+    } catch (e) {}
+  }
+
+  function generate() {
+    var a = currentAdapter();
+    if (a.id === 'manual') { analyze(); return; }
+    if (a.needsKey && !val('apiKey')) { setStatus('err', 'Enter an API key first.'); return; }
+    persistKey();
+    setLoading(true);
+    setStatus('busy', 'Fetching from ' + esc(a.label) + '…');
+    a.fetch({ apiKey: val('apiKey'), symbol: 'SPY' }).then(function (res) {
+      applyFields(res.fields);
+      var filled = res.filled.length ? 'Filled ' + res.filled.length + ' field(s).' : 'No fields returned.';
+      var gaps = (res.gaps && res.gaps.length) ? ' Manual: ' + res.gaps.join(', ') + '.' : '';
+      setStatus('ok', esc(filled + gaps));
+      analyze();
+    }).catch(function (err) {
+      setStatus('err', 'Fetch failed: ' + esc(err.message || String(err)));
+      showError('Fetch failed: ' + (err.message || String(err)));
+    }).then(function () { setLoading(false); });
+  }
+
+  // ---- example / reset / toggle ----
   var EXAMPLE = {
     session: 'RTH', spy: '521.40', vwap: '520.50', resistance: '522.00', support: '519.00',
     pmh: '521.80', pml: '519.20', pdh: '521.10', pdl: '518.40', pdc: '519.80',
@@ -212,116 +282,51 @@
   };
 
   function loadExample() {
+    $('provider').value = 'manual'; syncSourceUI();
     Object.keys(EXAMPLE).forEach(function (k) { if ($(k)) $(k).value = EXAMPLE[k]; });
     $('newsImminent').checked = false;
+    setStatus('ok', 'Loaded example readings.');
     analyze();
   }
 
   function resetForm() {
-    document.querySelectorAll('input').forEach(function (el) {
+    document.querySelectorAll('#inputsPanel input').forEach(function (el) {
       if (el.type === 'checkbox') el.checked = false; else el.value = '';
     });
     $('stopPct').value = '0.30'; $('t1Pct').value = '0.60'; $('t2Pct').value = '1.20';
-    document.querySelectorAll('select').forEach(function (el) { el.selectedIndex = 0; });
-    var b = $('banner'); b.className = 'banner idle';
-    b.innerHTML = 'Enter readings and press <b>Analyze</b>';
-    $('report').innerHTML = '';
-    var savedKey; try { savedKey = localStorage.getItem(LS_KEY); } catch (e) {}
-    if (savedKey) { $('apiKey').value = savedKey; $('rememberKey').checked = true; }
+    document.querySelectorAll('#inputsPanel select').forEach(function (el) { el.selectedIndex = 0; });
+    $('card').hidden = true; $('error').hidden = true; $('empty').hidden = false;
     setStatus('', '');
-    syncSourceUI();
   }
 
-  function analyze() {
-    try {
-      render(E.runAnalysis(collect()));
-    } catch (err) {
-      $('report').innerHTML = '<p class="prose">Error: ' + esc(err.message) + '</p>';
-    }
-  }
-
-  // --- Live data adapters --------------------------------------------------
-  var ADAPTERS = window.SignalAdapters;
-  var LS_KEY = 'sdm_apikey', LS_PROV = 'sdm_provider';
-
-  function applyFields(fields) {
-    Object.keys(fields).forEach(function (id) {
-      var el = $(id);
-      if (!el) return;
-      if (el.type === 'checkbox') el.checked = !!fields[id];
-      else el.value = fields[id];
-    });
-  }
-
-  function currentAdapter() {
-    return ADAPTERS.byId[val('provider')] || ADAPTERS.byId.manual;
-  }
-
-  function syncSourceUI() {
-    var a = currentAdapter();
-    var needs = !!a.needsKey;
-    $('keyWrap').style.display = needs ? '' : 'none';
-    $('rememberKey').parentElement.style.display = needs ? '' : 'none';
-    $('fetchLive').style.display = a.id === 'manual' ? 'none' : '';
-    $('keyHint').textContent = a.keyHint || '';
-  }
-
-  function setStatus(cls, html) {
-    var s = $('fetchStatus');
-    s.className = 'status ' + (cls || '');
-    s.innerHTML = html || '';
-  }
-
-  function fetchLive() {
-    var a = currentAdapter();
-    var key = val('apiKey');
-    if (a.needsKey && !key) { setStatus('err', 'Enter an API key first.'); return; }
-
-    if ($('rememberKey').checked) {
-      try { localStorage.setItem(LS_KEY, key); localStorage.setItem(LS_PROV, a.id); } catch (e) {}
-    } else {
-      try { localStorage.removeItem(LS_KEY); } catch (e) {}
-    }
-
-    var btn = $('fetchLive');
-    btn.disabled = true;
-    setStatus('busy', 'Fetching from ' + esc(a.label) + '…');
-
-    a.fetch({ apiKey: key, symbol: 'SPY' }).then(function (res) {
-      applyFields(res.fields);
-      var filled = res.filled.length
-        ? 'Filled ' + res.filled.length + ' field(s): ' + esc(res.filled.join(', ')) + '.'
-        : 'No fields returned.';
-      var gaps = res.gaps && res.gaps.length
-        ? '<span class="gaps">Enter manually: ' + esc(res.gaps.join(', ')) + '.</span>' : '';
-      setStatus('ok', filled + gaps);
-      analyze();
-    }).catch(function (err) {
-      setStatus('err', 'Fetch failed: ' + esc(err.message || String(err)));
-    }).then(function () { btn.disabled = false; });
+  function toggleInputs() {
+    var panel = $('inputsPanel'), btn = $('toggleInputs');
+    var open = panel.hidden;
+    panel.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = open ? 'Manual inputs ▴' : 'Manual inputs ▾';
   }
 
   function initSource() {
     var sel = $('provider');
     ADAPTERS.list.forEach(function (a) {
       var o = document.createElement('option');
-      o.value = a.id; o.textContent = a.label;
-      sel.appendChild(o);
+      o.value = a.id; o.textContent = a.label; sel.appendChild(o);
     });
     var savedProv, savedKey;
     try { savedProv = localStorage.getItem(LS_PROV); savedKey = localStorage.getItem(LS_KEY); } catch (e) {}
     if (savedProv && ADAPTERS.byId[savedProv]) sel.value = savedProv;
+    else sel.value = 'mock'; // default to the offline demo so first click shows a full signal
     if (savedKey) { $('apiKey').value = savedKey; $('rememberKey').checked = true; }
     syncSourceUI();
     sel.addEventListener('change', syncSourceUI);
-    $('fetchLive').addEventListener('click', fetchLive);
   }
 
+  $('generate').addEventListener('click', generate);
   $('analyze').addEventListener('click', analyze);
   $('example').addEventListener('click', loadExample);
   $('reset').addEventListener('click', resetForm);
+  $('toggleInputs').addEventListener('click', toggleInputs);
 
   initSource();
-  tickClock();
-  setInterval(tickClock, 1000);
 })();

@@ -1,0 +1,9 @@
+{
+  "name": "signal-deck-mini",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SPY 0DTE options decision engine — paper-trading education only.",
+  "scripts": {
+    "test": "node tests/engine.test.js && node tests/adapters.test.js && node tests/mock.test.js"
+  }
+}

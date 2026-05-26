@@ -4,6 +4,7 @@
   "private": true,
   "description": "SPY 0DTE options decision engine — paper-trading education only.",
   "scripts": {
-    "test": "node tests/engine.test.js && node tests/adapters.test.js && node tests/mock.test.js && node tests/api.test.js"
+    "test": "node tests/engine.test.js && node tests/adapters.test.js && node tests/mock.test.js && node tests/api.test.js && node tests/backtest.test.js",
+    "backtest": "node backtest/run.js"
   }
 }

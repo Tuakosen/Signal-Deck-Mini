@@ -42,7 +42,11 @@
         volume: val('optVolume'), oi: val('oi'), iv: val('iv'),
         delta: val('delta'), gamma: val('gamma'), theta: val('theta')
       },
-      stopPct: val('stopPct'), t1Pct: val('t1Pct'), t2Pct: val('t2Pct'), now: new Date()
+      stopPct: val('stopPct'), t1Pct: val('t1Pct'), t2Pct: val('t2Pct'),
+      mode: val('mode') || 'paper',
+      account: val('account'),
+      riskPct: val('riskPct') !== '' ? parseFloat(val('riskPct')) / 100 : undefined,
+      now: new Date()
     };
   }
 
@@ -81,6 +85,12 @@
         '<div class="hdr-stat"><div class="sub">Quality</div><div class="v">' + esc(r.tradeQuality) + '</div></div>' +
       '</div>' +
     '</header>';
+
+    // Real-money banner
+    if (r.mode === 'real') {
+      html += '<div class="real-bar"><span class="real-tag">REAL MONEY</span>' +
+        'Not financial advice — this rules engine is unvalidated. You accept all risk; you can lose your entire premium.</div>';
+    }
 
     // Status / data-availability bar
     if (r.warning) {
@@ -177,6 +187,54 @@
         '</dl>';
     }
     html += section('0DTE Contract Selection', contract, true);
+
+    // Position & Risk Sizing | Trade Projection (confirmed contract only)
+    if (r.sizing || r.projection) {
+      var sz;
+      if (!r.sizing) {
+        sz = '<p class="prose dim">Available once a live contract is confirmed.</p>';
+      } else if (r.sizing.needAccount) {
+        sz = '<p class="prose dim">Enter your account size and risk % above to size the position.</p>';
+      } else {
+        var s = r.sizing;
+        sz = '<dl>' +
+          dlRow('Account', '$' + s.account.toLocaleString()) +
+          dlRow('Risk / trade', (s.riskPct * 100).toFixed(1) + '%') +
+          dlRow('Risk budget', '$' + s.riskBudget.toLocaleString()) +
+          dlRow('Risk / contract', '$' + s.perContractRisk) +
+          dlRow('Suggested size', '<span class="' + (s.contracts > 0 ? 'val-emerald' : 'val-rose') + '">' + s.contracts + ' contract' + (s.contracts === 1 ? '' : 's') + '</span>', null, 'top') +
+          dlRow('Capital deployed', '$' + s.capital.toLocaleString()) +
+          dlRow('Max loss', '<span class="val-rose">$' + s.maxLoss.toLocaleString() + '</span><span class="dd-sub">' + (s.actualRiskPct !== null ? s.actualRiskPct + '% of account' : '') + '</span>') +
+          dlRow('Max profit T1', '<span class="val-emerald">$' + s.maxProfitT1.toLocaleString() + '</span>') +
+          dlRow('Max profit T2', '<span class="val-emerald">$' + s.maxProfitT2.toLocaleString() + '</span>') +
+          '</dl>' +
+          (s.note ? '<p class="prose warn" style="margin-top:10px">' + esc(s.note) + '</p>' : '');
+      }
+
+      var pj;
+      if (!r.projection) {
+        pj = '<p class="prose dim">Available once a live contract is confirmed.</p>';
+      } else {
+        var pr = r.projection, naSpan = '<span class="dd-na">n/a</span>';
+        var reach = pr.reachableT1 === true ? '<span class="val-emerald">Yes — within ~1σ</span>'
+          : pr.reachableT1 === false ? '<span class="val-amber">Unlikely in the time left</span>' : naSpan;
+        pj = '<dl>' +
+          dlRow('Breakeven', '$' + pr.breakeven.toFixed(2) + '<span class="dd-sub">' + (pr.breakevenMovePct >= 0 ? '+' : '') + pr.breakevenMovePct + '% move</span>') +
+          dlRow('Move → Target 1', pr.requiredMoveT1Pct !== null ? pr.requiredMoveT1Pct + '% SPY' : naSpan) +
+          dlRow('Move → Target 2', pr.requiredMoveT2Pct !== null ? pr.requiredMoveT2Pct + '% SPY' : naSpan) +
+          dlRow('Expected move (~1σ)', pr.expectedMovePct !== null ? pr.expectedMovePct + '%' : naSpan) +
+          dlRow('Hours left (RTH)', pr.hoursLeft !== null ? pr.hoursLeft : naSpan) +
+          dlRow('P(ITM) approx', pr.probItm !== null ? pr.probItm + '%' : naSpan) +
+          dlRow('T1 reachable?', reach, null, 'top') +
+          '</dl>' +
+          '<p class="prose dim" style="margin-top:10px">First-order estimate (delta-based). Gamma makes real premium gains faster; expected move uses IV over remaining session time — approximations, not guarantees.</p>';
+      }
+
+      html += '<div class="grid-split">' +
+        '<section class="section"><h3 class="section-title">Position &amp; Risk Sizing</h3>' + sz + '</section>' +
+        '<section class="section"><h3 class="section-title">Trade Projection</h3>' + pj + '</section>' +
+      '</div>';
+    }
 
     // Scorecard
     var rows = [
@@ -306,7 +364,18 @@
     } catch (e) {}
   }
 
+  function ensureRealAck() {
+    if (val('mode') === 'real' && !checked('realAck')) {
+      setStatus('err', 'Real-money mode: tick "I accept real-money risk" before generating a signal.');
+      return false;
+    }
+    return true;
+  }
+
+  function syncMode() { $('realAckWrap').hidden = val('mode') !== 'real'; }
+
   function generate() {
+    if (!ensureRealAck()) return;
     var a = currentAdapter();
     if (a.id === 'manual') { analyze(); return; }
     if (a.needsKey && !val('apiKey')) { setStatus('err', 'Enter an API key first.'); return; }
@@ -339,6 +408,7 @@
 
   function loadExample() {
     $('provider').value = 'manual'; syncSourceUI();
+    $('mode').value = 'paper'; syncMode();
     Object.keys(EXAMPLE).forEach(function (k) { if ($(k)) $(k).value = EXAMPLE[k]; });
     $('newsImminent').checked = false;
     setStatus('ok', 'Loaded example readings.');
@@ -378,11 +448,27 @@
     sel.addEventListener('change', syncSourceUI);
   }
 
+  function initMode() {
+    try {
+      var m = localStorage.getItem('sdm_mode'); if (m) $('mode').value = m;
+      if (localStorage.getItem('sdm_realack') === '1') $('realAck').checked = true;
+    } catch (e) {}
+    syncMode();
+    $('mode').addEventListener('change', function () {
+      try { localStorage.setItem('sdm_mode', val('mode')); } catch (e) {}
+      syncMode();
+    });
+    $('realAck').addEventListener('change', function () {
+      try { localStorage.setItem('sdm_realack', checked('realAck') ? '1' : '0'); } catch (e) {}
+    });
+  }
+
   $('generate').addEventListener('click', generate);
-  $('analyze').addEventListener('click', analyze);
+  $('analyze').addEventListener('click', function () { if (ensureRealAck()) analyze(); });
   $('example').addEventListener('click', loadExample);
   $('reset').addEventListener('click', resetForm);
   $('toggleInputs').addEventListener('click', toggleInputs);
 
   initSource();
+  initMode();
 })();

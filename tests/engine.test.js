@@ -201,5 +201,52 @@ ok(chNeutral.status === 'TECHNICAL BIAS ONLY', 'chain + neutral -> TECHNICAL BIA
 ok(chNeutral.action === 'WAIT', 'chain + neutral -> WAIT');
 ok(/neutral/.test(chNeutral.warning), 'neutral-bias chain warning mentions neutral');
 
+// 16) Position sizing + projection
+var SETUP = {
+  now: RTH, session: 'RTH', spy: 521.40,
+  levels: { vwap: 520.50, resistance: 522, support: 519 },
+  macdDir: 'BULL', histo: 'EXPANDING', macd15: 'BULL', rsi: 58, volume: 'CONFIRM_UP',
+  qqq: 'BULL', es: 'BULL', vix: 'DOWN', yield10: 'DOWN', regime: 'TREND', news: 'BULLISH',
+  option: { bid: 1.20, ask: 1.24, volume: 8000, oi: 12000, iv: 0.18, delta: 0.52 }
+};
+function withExtra(o) { var r = {}; for (var k in SETUP) r[k] = SETUP[k]; for (var j in o) r[j] = o[j]; return r; }
+
+var sized = E.runAnalysis(withExtra({ account: 5000, riskPct: 0.02 }));
+ok(sized.sizing && sized.sizing.contracts === 2, 'sizing: 2 contracts for $5k @ 2% (risk/contract $37)');
+ok(sized.sizing.maxLoss === 74, 'sizing: max loss $74');
+ok(sized.sizing.riskBudget === 100, 'sizing: risk budget $100');
+ok(sized.sizing.capital === 244, 'sizing: capital deployed $244');
+ok(sized.sizing.actualRiskPct === 1.48, 'sizing: actual risk 1.48%');
+ok(sized.projection.breakeven === 522.22, 'projection: breakeven = strike + premium (522.22)');
+ok(sized.projection.probItm === 52, 'projection: P(ITM) approx = |delta| (52%)');
+ok(sized.projection.requiredMoveT1Pct === 0.27, 'projection: required SPY move to T1 ~0.27%');
+ok(sized.projection.reachableT1 === true, 'projection: T1 reachable within ~1-sigma expected move');
+ok(sized.projection.expectedMovePct > 0, 'projection: expected move computed from IV');
+ok(E.runAnalysis(SETUP).sizing.needAccount === true, 'sizing: prompts for account when none given');
+
+// 17) Real-money quality bar
+var modInput = {
+  now: RTH, session: 'RTH', spy: 521.40,
+  levels: { vwap: 520.50, resistance: 522, support: 519 },
+  macdDir: 'BULL', histo: 'EXPANDING', macd15: 'NEUTRAL', rsi: 52, volume: 'MIXED',
+  qqq: 'BULL', es: 'NEUTRAL', vix: 'FLAT', yield10: 'FLAT', regime: 'RANGE', news: 'NEUTRAL',
+  option: { bid: 1.20, ask: 1.24, volume: 8000, oi: 12000, iv: 0.18, delta: 0.52 }
+};
+var paperB = E.runAnalysis(modInput);
+ok(paperB.action === 'BUY CALL' && paperB.tradeQuality === 'B', 'moderate setup -> BUY CALL / B in paper');
+var realB = E.runAnalysis(withExtra2(modInput, { mode: 'real' }));
+ok(realB.action === 'NO OPTIONS TRADE', 'B-quality blocked in real-money mode');
+ok(realB.gates.some(function (g) { return g.tag === 'REAL'; }), 'real-money bar gate logged');
+var realA = E.runAnalysis(withExtra({ mode: 'real' }));
+ok(realA.action === 'BUY CALL', 'A/A+ setup still trades in real-money mode');
+
+// 18) Real-money liquidity floor (1000 vs 500)
+ok(E.runAnalysis(withExtra({ option: { bid: 1.20, ask: 1.24, volume: 800, oi: 12000, iv: 0.18, delta: 0.52 } })).action === 'BUY CALL',
+  'paper allows volume 800 (>= 500 floor)');
+ok(E.runAnalysis(withExtra({ mode: 'real', option: { bid: 1.20, ask: 1.24, volume: 800, oi: 12000, iv: 0.18, delta: 0.52 } })).action === 'NO OPTIONS TRADE',
+  'real-money floor (1000) blocks volume 800');
+
+function withExtra2(base, o) { var r = {}; for (var k in base) r[k] = base[k]; for (var j in o) r[j] = o[j]; return r; }
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

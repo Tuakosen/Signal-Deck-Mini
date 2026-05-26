@@ -18,6 +18,9 @@
     spreadRelWide: 0.10,     // spread > 10% of premium = too wide
     minContractVolume: 500,
     minContractOI: 500,
+    realMinVolume: 1000,     // real-money mode demands deeper liquidity
+    realMinOI: 1000,
+    tradingDayHours: 6.5,    // 09:30–16:00 ET
     minRiskReward: 2.0,      // spec: reject anything worse than 1:2
     lateSessionMin: 15 * 60 + 30, // 15:30 ET — decay risk grows after this
     cutoffMin: 15 * 60 + 55       // 15:55 ET — do not open new 0DTE
@@ -254,10 +257,14 @@
         else if (opt.premium > 0 && opt.spread / opt.premium > CFG.spreadRelWide)
           gates.push({ tag: 'OPT', msg: 'Spread is >' + (CFG.spreadRelWide * 100) + '% of premium.' });
       }
-      if (opt.volume !== null && opt.volume < CFG.minContractVolume)
-        gates.push({ tag: 'OPT', msg: 'Contract volume ' + opt.volume + ' below liquidity floor.' });
-      if (opt.oi !== null && opt.oi < CFG.minContractOI)
-        gates.push({ tag: 'OPT', msg: 'Open interest ' + opt.oi + ' below liquidity floor.' });
+      var volFloor = inp.mode === 'real' ? CFG.realMinVolume : CFG.minContractVolume;
+      var oiFloor = inp.mode === 'real' ? CFG.realMinOI : CFG.minContractOI;
+      if (opt.volume !== null && opt.volume < volFloor)
+        gates.push({ tag: 'OPT', msg: 'Contract volume ' + opt.volume + ' below ' +
+          (inp.mode === 'real' ? 'real-money ' : '') + 'liquidity floor (' + volFloor + ').' });
+      if (opt.oi !== null && opt.oi < oiFloor)
+        gates.push({ tag: 'OPT', msg: 'Open interest ' + opt.oi + ' below ' +
+          (inp.mode === 'real' ? 'real-money ' : '') + 'liquidity floor (' + oiFloor + ').' });
       if (sess.session === 'RTH' && sess.minutes >= CFG.cutoffMin)
         gates.push({ tag: 'TIME', msg: 'After 15:55 ET — not enough time left for a 0DTE move.' });
     }
@@ -324,7 +331,17 @@
     else if (confidence === 'MEDIUM') quality = 'B';
     else quality = 'C';
 
+    // Real-money bar: only A/A+ setups with non-low confidence clear it.
+    if (inp.mode === 'real' && tradeable && (!(quality === 'A' || quality === 'A+') || confidence === 'LOW')) {
+      gates.push({ tag: 'REAL', msg: 'Below the real-money bar: requires A/A+ quality and non-low confidence (got ' +
+        quality + ' / ' + confidence + '). Paper-trade this one.' });
+      action = 'NO OPTIONS TRADE';
+      tradeable = false;
+    }
+
     var contract = buildContract(inp, side, status, bias, opt);
+    var sizing = buildSizing(inp.account, inp.riskPct, plan);
+    var projection = buildProjection(inp, side, plan, opt, sess, contract);
 
     return {
       action: action,
@@ -350,8 +367,11 @@
         yield10: impact(inp.yield10, 'DOWN', 'UP') // yields down = bullish for growth
       },
       optionDirection: side || 'NO OPTIONS TRADE',
+      mode: inp.mode,
       contract: contract,
       plan: plan,
+      sizing: sizing,
+      projection: projection,
       vwapState: vwapState,
       vwapBand: band,
       levels: inp.levels,
@@ -437,7 +457,10 @@
       } : null,
       stopPct: raw.stopPct != null ? num(raw.stopPct) : 0.30,
       t1Pct: raw.t1Pct != null ? num(raw.t1Pct) : 0.60,
-      t2Pct: raw.t2Pct != null ? num(raw.t2Pct) : 1.20
+      t2Pct: raw.t2Pct != null ? num(raw.t2Pct) : 1.20,
+      mode: raw.mode === 'real' ? 'real' : 'paper',
+      account: num(raw.account),
+      riskPct: raw.riskPct != null ? num(raw.riskPct) : 0.01
     };
   }
 
@@ -485,6 +508,54 @@
       p.invalidation = highest([lv.resistance, lv.vwap]);
     }
     return p;
+  }
+
+  // Position sizing from account + risk%. Needs a confirmed premium ladder.
+  function buildSizing(account, riskPct, plan) {
+    if (plan.entry === null || plan.maxRisk === null || !plan.maxRisk) return null;
+    if (account === null || !account) return { needAccount: true };
+    var riskBudget = account * riskPct;
+    var perContractRisk = plan.maxRisk;            // $ at risk per contract
+    var perContractCost = +(plan.entry * 100).toFixed(0);
+    var byRisk = Math.floor(riskBudget / perContractRisk);
+    var byCapital = perContractCost > 0 ? Math.floor(account / perContractCost) : 0;
+    var contracts = Math.max(0, Math.min(byRisk, byCapital));
+    var maxLoss = contracts * perContractRisk;
+    return {
+      account: account, riskPct: riskPct, riskBudget: +riskBudget.toFixed(0),
+      perContractRisk: perContractRisk, perContractCost: perContractCost,
+      contracts: contracts, capital: contracts * perContractCost, maxLoss: maxLoss,
+      maxProfitT1: contracts * (plan.maxProfitT1 || 0),
+      maxProfitT2: contracts * (plan.maxProfitT2 || 0),
+      actualRiskPct: account ? +(maxLoss / account * 100).toFixed(2) : null,
+      note: contracts < 1 ? 'Even 1 contract exceeds your risk budget — widen the stop, lower risk %, or skip.' : null
+    };
+  }
+
+  // Breakeven + a rough expected-move reality check. First-order (delta-based),
+  // intentionally conservative — gamma makes real premium gains faster.
+  function buildProjection(inp, side, plan, opt, sess, contract) {
+    if (plan.entry === null || inp.spy === null || !side) return null;
+    var spy = inp.spy;
+    var strike = contract.strike != null ? contract.strike : Math.round(spy);
+    var be = side === 'CALL' ? strike + plan.entry : strike - plan.entry;
+    var delta = opt.delta != null ? Math.abs(opt.delta) : null;
+    var reqT1 = (delta && delta > 0 && plan.t1 != null) ? Math.abs(plan.t1 - plan.entry) / delta : null;
+    var reqT2 = (delta && delta > 0 && plan.t2 != null) ? Math.abs(plan.t2 - plan.entry) / delta : null;
+    var iv = opt.iv;
+    var hoursLeft = sess.session === 'RTH' ? Math.max(0, (16 * 60 - sess.minutes) / 60) : null;
+    var expMovePct = (iv && hoursLeft) ? iv * Math.sqrt((hoursLeft / CFG.tradingDayHours) / 252) * 100 : null;
+    var reqT1Pct = reqT1 != null ? +(reqT1 / spy * 100).toFixed(2) : null;
+    return {
+      breakeven: +be.toFixed(2),
+      breakevenMovePct: +((be - spy) / spy * 100).toFixed(2),
+      requiredMoveT1Pct: reqT1Pct,
+      requiredMoveT2Pct: reqT2 != null ? +(reqT2 / spy * 100).toFixed(2) : null,
+      expectedMovePct: expMovePct != null ? +expMovePct.toFixed(2) : null,
+      hoursLeft: hoursLeft != null ? +hoursLeft.toFixed(1) : null,
+      probItm: delta != null ? Math.round(delta * 100) : null,
+      reachableT1: (reqT1Pct != null && expMovePct != null) ? reqT1Pct <= expMovePct : null
+    };
   }
 
   function buildContract(inp, side, status, bias, opt) {

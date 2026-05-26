@@ -67,6 +67,31 @@
     return '$' + n.toFixed(2);
   }
 
+  // A real, tradable 0DTE chain quote: both sides present and sane, plus volume.
+  // Strike/type are derived by the engine and expiry is today by construction,
+  // so the data gate is the live quote (bid/ask/volume) — not those derived fields.
+  function validOptionsChain(opt) {
+    return opt.bid !== null && opt.ask !== null &&
+      opt.ask > 0 && opt.bid >= 0 && opt.ask >= opt.bid &&
+      opt.volume !== null;
+  }
+
+  // Support/resistance from the SPY underlying when not explicitly supplied:
+  // nearest reference level below price = support, nearest above = resistance.
+  function deriveLevels(lv, spy) {
+    if (spy === null) return;
+    var refs = [lv.pdh, lv.pdl, lv.pmh, lv.pml, lv.orh, lv.orl, lv.open, lv.pdc].filter(
+      function (x) { return x !== null && x !== undefined; });
+    if (lv.resistance === null) {
+      var above = refs.filter(function (x) { return x > spy; });
+      if (above.length) lv.resistance = Math.min.apply(null, above);
+    }
+    if (lv.support === null) {
+      var below = refs.filter(function (x) { return x < spy; });
+      if (below.length) lv.support = Math.max.apply(null, below);
+    }
+  }
+
   // --- Directional scoring -------------------------------------------------
   function scoreDirection(inp, vwapState) {
     var s = 0;
@@ -158,12 +183,12 @@
     return { r: 'FAIL', reason: 'flow opposes the ' + (side ? side.toLowerCase() : 'trade') };
   }
 
-  function optionsCell(opt, gates) {
+  function optionsCell(opt, gates, hasValidOptions) {
+    if (!hasValidOptions) return { r: 'NEUTRAL', reason: 'no live 0DTE options-chain data — technical bias only' };
     var bad = gates.filter(function (g) { return g.tag === 'OPT'; });
     if (bad.length) return { r: 'FAIL', reason: bad[0].msg };
-    if (opt.premium === null) return { r: 'NEUTRAL', reason: 'contract data not provided' };
     return { r: 'PASS', reason: 'spread ' + money(opt.spread) + ', vol ' + opt.volume +
-      ', OI ' + opt.oi + ' — liquid' };
+      ', OI ' + (opt.oi !== null ? opt.oi : 'n/a') + ' — liquid' };
   }
 
   // --- Main ----------------------------------------------------------------
@@ -212,9 +237,14 @@
 
     var side = bias === 'BULLISH' ? 'CALL' : bias === 'BEARISH' ? 'PUT' : null;
 
-    // Options/contract gates
+    // Layer the analysis: SPY underlying technical vs. live 0DTE options chain.
+    deriveLevels(inp.levels, spy);
+    var hasUnderlyingData = spy !== null;
     var opt = inp.option;
-    if (opt.premium !== null) {
+    var hasValidOptions = validOptionsChain(opt);
+
+    // Contract tradeability gates — only meaningful with a real chain.
+    if (hasValidOptions) {
       if (opt.spread !== null) {
         if (opt.spread > CFG.spreadAbsWide)
           gates.push({ tag: 'OPT', msg: 'Bid/ask spread ' + money(opt.spread) + ' is too wide.' });
@@ -225,51 +255,52 @@
         gates.push({ tag: 'OPT', msg: 'Contract volume ' + opt.volume + ' below liquidity floor.' });
       if (opt.oi !== null && opt.oi < CFG.minContractOI)
         gates.push({ tag: 'OPT', msg: 'Open interest ' + opt.oi + ' below liquidity floor.' });
-    } else {
-      gates.push({ tag: 'OPT', msg: 'No 0DTE contract data provided.' });
+      if (sess.session === 'RTH' && sess.minutes >= CFG.cutoffMin)
+        gates.push({ tag: 'TIME', msg: 'After 15:55 ET — not enough time left for a 0DTE move.' });
     }
 
-    // Late session
-    if (sess.session === 'RTH' && sess.minutes >= CFG.cutoffMin) {
-      gates.push({ tag: 'TIME', msg: 'After 15:55 ET — not enough time left for a 0DTE move.' });
-    }
-
-    // Entry plan / premium math
-    var plan = buildPlan(inp, side);
-    if (plan.rr !== null && plan.rr < CFG.minRiskReward) {
+    // Entry plan (SPY technical levels always; premium math only with a real chain).
+    var plan = buildPlan(inp, side, hasValidOptions);
+    if (hasValidOptions && plan.rr !== null && plan.rr < CFG.minRiskReward) {
       gates.push({ tag: 'RR', msg: 'Risk/reward 1:' + plan.rr.toFixed(1) + ' is worse than 1:2.' });
     }
 
-    // Decide final action
-    var hardStop = gates.some(function (g) {
-      return ['SESSION', 'VWAP', 'OPT', 'TIME', 'RR', 'NEWS'].indexOf(g.tag) >= 0;
-    });
-    var action;
-    if (!side) {
+    // Determine status + final action across the two layers.
+    var status, statusLabel, warning = null, action, tradeable = false;
+    if (!hasUnderlyingData) {
+      status = 'NO MARKET DATA'; statusLabel = 'No Market Data';
+      warning = 'No SPY market data provided — enter readings or fetch a live source.';
       action = 'WAIT';
-    } else if (hardStop) {
-      action = 'NO OPTIONS TRADE';
+    } else if (!hasValidOptions) {
+      status = 'TECHNICAL BIAS ONLY'; statusLabel = 'Technical Bias Only';
+      warning = 'No live 0DTE options-chain data available. Technical SPY bias only.';
+      action = side ? 'NO OPTIONS TRADE' : 'WAIT';
     } else {
-      action = side === 'CALL' ? 'BUY CALL' : 'BUY PUT';
-    }
-    // If neutral AND something hard also failed, prefer the more conservative label
-    if (action === 'WAIT' && gates.some(function (g) { return g.tag === 'SESSION' || g.tag === 'VWAP'; })) {
-      action = 'NO OPTIONS TRADE';
+      status = 'CONFIRMED 0DTE OPTIONS SIGNAL'; statusLabel = 'Confirmed 0DTE Signal';
+      var hardStop = gates.some(function (g) {
+        return ['SESSION', 'VWAP', 'OPT', 'TIME', 'RR', 'NEWS'].indexOf(g.tag) >= 0;
+      });
+      if (!side) action = 'WAIT';
+      else if (hardStop) action = 'NO OPTIONS TRADE';
+      else action = side === 'CALL' ? 'BUY CALL' : 'BUY PUT';
+      if (action === 'WAIT' && gates.some(function (g) { return g.tag === 'SESSION' || g.tag === 'VWAP'; }))
+        action = 'NO OPTIONS TRADE';
+      tradeable = action === 'BUY CALL' || action === 'BUY PUT';
     }
 
-    var tradeable = action === 'BUY CALL' || action === 'BUY PUT';
+    var cleanStructure = side && vwapState !== 'CHOP' && vwapState !== 'UNKNOWN';
 
     // Scorecard
     var sc = {
       macd: macdCell(inp, side),
       rsivwap: rsiVwapCell(inp, side, vwapState),
       volume: volumeCell(inp, side),
-      timeframe: tradeable
-        ? { r: 'PASS', reason: 'RTH, clean structure for ' + plan.entryTf + ' entry' }
-        : { r: 'NEUTRAL', reason: 'no valid entry timeframe without a committed setup' },
+      timeframe: cleanStructure
+        ? { r: 'PASS', reason: 'clean structure for ' + plan.entryTf + ' entry (confirm ' + plan.confirmTf + ')' }
+        : { r: 'NEUTRAL', reason: 'no clean entry timeframe yet' },
       history: historyCell(inp, side),
       news: { r: inp.news, reason: inp.newsHeadline || 'no catalyst noted' },
-      options: optionsCell(opt, gates)
+      options: optionsCell(opt, gates, hasValidOptions)
     };
 
     var passes = ['macd', 'rsivwap', 'volume', 'timeframe', 'history', 'options']
@@ -286,10 +317,14 @@
     else if (confidence === 'MEDIUM') quality = 'B';
     else quality = 'C';
 
-    var contract = buildContract(inp, side, action, plan);
+    var contract = buildContract(inp, side, status, bias);
 
     return {
       action: action,
+      status: status,
+      statusLabel: statusLabel,
+      warning: warning,
+      optionsAvailable: hasValidOptions,
       tradeable: tradeable,
       spy: spy,
       session: sess.session,
@@ -299,6 +334,7 @@
       tradeQuality: quality,
       biasScore: dir.score,
       bias: bias,
+      technicalBias: bias,
       trend: trendLabel(inp.regime),
       cross: {
         qqq: impact(inp.qqq, 'BULL', 'BEAR'),
@@ -321,8 +357,8 @@
         optionsImpact: newsOptions(inp.news, inp.vix),
         sentiment: inp.news
       },
-      reasoning: buildReasoning(action, bias, vwapState, inp, plan, sc),
-      finalSummary: buildSummary(action, contract, plan, quality)
+      reasoning: buildReasoning(action, bias, vwapState, inp, plan, sc, status),
+      finalSummary: buildSummary(action, contract, plan, quality, status, bias)
     };
   }
 
@@ -368,10 +404,12 @@
     };
   }
 
-  function buildPlan(inp, side) {
-    var prem = inp.option.premium;
+  function buildPlan(inp, side, hasValidOptions) {
+    var prem = hasValidOptions ? inp.option.premium : null;
     var lv = inp.levels;
     var p = {
+      mode: hasValidOptions ? 'Confirmed Options' : 'Technical Bias Only',
+      premiumReason: hasValidOptions ? null : 'Premium levels require live 0DTE options-chain data.',
       entry: prem, stop: null, t1: null, t2: null,
       maxRisk: null, maxProfitT1: null, maxProfitT2: null, rr: null,
       entryTf: '2-minute', confirmTf: '5-minute', htf: '15-minute',
@@ -412,7 +450,7 @@
     return p;
   }
 
-  function buildContract(inp, side, action, plan) {
+  function buildContract(inp, side, status, bias) {
     var spy = inp.spy, opt = inp.option;
     var atm = spy !== null ? Math.round(spy) : null;
     var strike = atm, type = 'ATM';
@@ -421,17 +459,37 @@
     } else if (side === 'PUT' && atm !== null) {
       strike = spy <= atm ? atm : atm + 1; type = strike >= spy ? 'Slightly ITM' : 'ATM';
     }
+    var expDate = fmtDateET(inp.now);
+
+    if (status === 'CONFIRMED 0DTE OPTIONS SIGNAL') {
+      return {
+        status: 'Confirmed', reason: null, ticker: 'SPY', expDate: expDate,
+        direction: side || 'n/a',
+        strike: side ? strike : null,
+        type: side ? type : 'n/a',
+        contractStatus: 'Confirmed',
+        technicalBias: bias, estimatedDirection: null, estimatedStrike: null,
+        premium: opt.premium,
+        totalCost: opt.premium !== null ? +(opt.premium * 100).toFixed(0) : null,
+        bid: opt.bid, ask: opt.ask, spread: opt.spread,
+        volume: opt.volume, oi: opt.oi, iv: opt.iv,
+        delta: opt.delta, gamma: opt.gamma, theta: opt.theta
+      };
+    }
+
+    // Options chain unavailable: technical bias only — never a confirmed contract.
+    var estStrike = (side && strike !== null) ? strike : null;
     return {
-      ticker: 'SPY',
-      expDate: fmtDateET(inp.now),
-      strike: side ? strike : null,
-      type: side ? type : 'NO OPTIONS TRADE',
-      premium: opt.premium,
-      totalCost: opt.premium !== null ? +(opt.premium * 100).toFixed(0) : null,
-      bid: opt.bid, ask: opt.ask, spread: opt.spread,
-      volume: opt.volume, oi: opt.oi, iv: opt.iv,
-      delta: opt.delta, gamma: opt.gamma, theta: opt.theta,
-      direction: side || 'NO OPTIONS TRADE'
+      status: 'Unavailable',
+      reason: 'No live 0DTE options-chain data provided.',
+      ticker: 'SPY', expDate: expDate,
+      direction: 'n/a', strike: null, type: 'n/a',
+      technicalBias: bias,
+      estimatedDirection: bias === 'BULLISH' ? 'CALL bias' : bias === 'BEARISH' ? 'PUT bias' : 'n/a',
+      estimatedStrike: estStrike,
+      contractStatus: estStrike !== null ? 'Estimated only — not confirmed tradable' : 'n/a',
+      premium: null, totalCost: null, bid: null, ask: null, spread: null,
+      volume: null, oi: null, iv: null, delta: null, gamma: null, theta: null
     };
   }
 
@@ -463,7 +521,23 @@
     return 'Neutral for premium direction.' + v;
   }
 
-  function buildReasoning(action, bias, vwapState, inp, plan, sc) {
+  function vwapPhrase(vwapState) {
+    return vwapState === 'ABOVE' ? 'price above VWAP'
+      : vwapState === 'BELOW' ? 'price below VWAP'
+      : vwapState === 'CHOP' ? 'price chopping at VWAP' : 'VWAP n/a';
+  }
+
+  function buildReasoning(action, bias, vwapState, inp, plan, sc, status) {
+    if (status === 'NO MARKET DATA') {
+      return 'No SPY market data yet — enter readings or fetch a live source to generate a signal.';
+    }
+    if (status === 'TECHNICAL BIAS ONLY') {
+      return 'SPY technical bias is ' + (bias === 'NEUTRAL' ? 'neutral' : bias.toLowerCase()) +
+        ' (' + vwapPhrase(vwapState) + ', MACD ' + inp.macdDir.toLowerCase() + ', RSI ' +
+        (inp.rsi !== null ? inp.rsi : 'n/a') + '). No live 0DTE options-chain data is available, ' +
+        'so no contract is confirmed — showing the SPY technical layer only. Provide a same-day ' +
+        'chain (bid/ask/volume) to confirm a tradable CALL or PUT.';
+    }
     if (action === 'NO OPTIONS TRADE' || action === 'WAIT') {
       return 'Setup does not meet the bar: ' +
         (vwapState === 'CHOP' ? 'price is chopping around VWAP, ' : '') +
@@ -480,7 +554,11 @@
       ' confirmation; macro/news is ' + inp.news.toLowerCase() + '.';
   }
 
-  function buildSummary(action, c, plan, quality) {
+  function buildSummary(action, c, plan, quality, status, bias) {
+    if (status === 'NO MARKET DATA') return 'Waiting on SPY market data.';
+    if (status === 'TECHNICAL BIAS ONLY')
+      return 'Technical SPY bias is ' + (bias === 'NEUTRAL' ? 'neutral' : bias.toLowerCase()) +
+        '. Provide a live 0DTE options chain (today\'s expiry, bid/ask/volume) to confirm a tradable CALL/PUT contract.';
     if (action === 'WAIT')
       return 'No committed direction yet — wait for VWAP/MACD to align before risking 0DTE premium.';
     if (action === 'NO OPTIONS TRADE')

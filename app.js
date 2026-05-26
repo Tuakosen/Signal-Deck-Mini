@@ -73,7 +73,7 @@
       '<div class="hdr-left">' +
         '<span class="action-pill ' + actionClass(r.action) + '">' + esc(r.action) + '</span>' +
         '<div><div class="price">' + (r.spy !== null ? '$' + r.spy.toFixed(2) : '—') + '</div>' +
-        '<div class="sub">SPY · 0DTE</div></div>' +
+        '<div class="sub">SPY · 0DTE · ' + esc(r.statusLabel) + '</div></div>' +
       '</div>' +
       '<div class="hdr-stats">' +
         '<div class="hdr-stat"><div class="sub">Session</div><div class="v">' + esc(r.sessionLabel) + '</div></div>' +
@@ -81,6 +81,12 @@
         '<div class="hdr-stat"><div class="sub">Quality</div><div class="v">' + esc(r.tradeQuality) + '</div></div>' +
       '</div>' +
     '</header>';
+
+    // Status / data-availability bar
+    if (r.warning) {
+      html += '<div class="mode-bar"><span class="mode-tag">' + esc(r.statusLabel) +
+        '</span>' + esc(r.warning) + '</div>';
+    }
 
     // Gates (why no/limited trade)
     if (r.gates.length) {
@@ -93,16 +99,28 @@
     }
 
     // Entry Plan | Key Levels
+    var trig = p.spyTrigger !== null ? esc(p.spyTriggerDir) + ' $' + p.spyTrigger.toFixed(2) : 'n/a';
+    var inval = p.invalidation !== null ? '$' + p.invalidation.toFixed(2) : 'n/a';
+    var na = '<span class="dd-na">n/a</span>';
     var ep = '<dl>' +
-      dlRow('Entry', $m(p.entry)) +
-      dlRow('Stop', '<span class="val-rose">' + $m(p.stop) + '</span>' +
-        (p.maxRisk !== null ? '<span class="dd-sub">−$' + p.maxRisk + '/contract</span>' : '')) +
-      dlRow('Target 1', '<span class="val-emerald">' + $m(p.t1) + '</span>' +
-        (p.maxProfitT1 !== null ? '<span class="dd-sub">+$' + p.maxProfitT1 + '/contract</span>' : '')) +
-      dlRow('Target 2', '<span class="val-emerald">' + $m(p.t2) + '</span>' +
-        (p.maxProfitT2 !== null ? '<span class="dd-sub">+$' + p.maxProfitT2 + '/contract</span>' : '')) +
-      dlRow('Risk / Reward', p.rr !== null ? '1:' + p.rr.toFixed(1) : '—', 'val-amber', 'top') +
-      '</dl>';
+      dlRow('Mode', esc(p.mode)) +
+      dlRow('SPY Trigger', trig) +
+      dlRow('SPY Invalidation', inval) +
+      dlRow('Entry Timeframe', esc(p.entryTf)) +
+      dlRow('Confirmation', esc(p.confirmTf)) +
+      dlRow('Premium Entry', p.entry === null ? na : $m(p.entry), null, 'top') +
+      dlRow('Premium Stop', p.stop === null ? '<span class="dd-na">n/a</span>'
+        : '<span class="val-rose">' + $m(p.stop) + '</span>' +
+          (p.maxRisk !== null ? '<span class="dd-sub">−$' + p.maxRisk + '/contract</span>' : '')) +
+      dlRow('Premium Target 1', p.t1 === null ? '<span class="dd-na">n/a</span>'
+        : '<span class="val-emerald">' + $m(p.t1) + '</span>' +
+          (p.maxProfitT1 !== null ? '<span class="dd-sub">+$' + p.maxProfitT1 + '/contract</span>' : '')) +
+      dlRow('Premium Target 2', p.t2 === null ? '<span class="dd-na">n/a</span>'
+        : '<span class="val-emerald">' + $m(p.t2) + '</span>' +
+          (p.maxProfitT2 !== null ? '<span class="dd-sub">+$' + p.maxProfitT2 + '/contract</span>' : '')) +
+      dlRow('Risk / Reward', p.rr !== null ? '1:' + p.rr.toFixed(1) : '<span class="dd-na">n/a</span>', p.rr !== null ? 'val-amber' : null) +
+      '</dl>' +
+      (p.premiumReason ? '<p class="prose dim" style="margin-top:10px">' + esc(p.premiumReason) + '</p>' : '');
 
     var kl = '<dl>' +
       dlRow('VWAP', $m(L.vwap) + ' <span class="dd-sub" style="display:inline">(' + r.vwapState + ')</span>') +
@@ -110,7 +128,10 @@
       dlRow('Support', $m(L.support)) +
       dlRow('Prior Day High', $m(L.pdh)) +
       dlRow('Prior Day Low', $m(L.pdl)) +
+      dlRow('Prior Day Close', $m(L.pdc)) +
       dlRow('Day Open', $m(L.open)) +
+      dlRow('Pre-Mkt High', $m(L.pmh)) +
+      dlRow('Pre-Mkt Low', $m(L.pml)) +
       '</dl>';
 
     html += '<div class="grid-split">' +
@@ -118,22 +139,42 @@
       '<section class="section"><h3 class="section-title">Key Levels</h3>' + kl + '</section>' +
     '</div>';
 
-    // Contract selection
-    var contract = '<dl>' +
-      dlRow('Direction', esc(c.direction)) +
-      dlRow('Strike', c.strike !== null ? '$' + c.strike + ' · ' + esc(c.type) : '—') +
-      dlRow('Premium', $m(c.premium) + (c.totalCost !== null ? '<span class="dd-sub">$' + c.totalCost + '/contract</span>' : '')) +
-      dlRow('Bid / Ask', $m(c.bid) + ' / ' + $m(c.ask)) +
-      dlRow('Spread', $m(c.spread)) +
-      dlRow('Volume / OI', n(c.volume) + ' / ' + n(c.oi)) +
-      dlRow('Delta / IV', n(c.delta) + ' / ' + (c.iv !== null ? pct(c.iv) : '—')) +
-      '</dl>';
-    if (r.tradeable && p.spyTrigger !== null) {
-      contract += '<p class="prose" style="margin-top:12px">Trigger: enter when SPY <strong>' +
-        esc(p.spyTriggerDir) + ' $' + p.spyTrigger.toFixed(2) + '</strong> on the ' + esc(p.entryTf) +
-        ' close (confirm on ' + esc(p.confirmTf) + '). Style: ' + esc(p.style) + '. Invalidation: ' +
-        (r.action === 'BUY CALL' ? 'below' : 'above') + ' $' +
-        (p.invalidation !== null ? p.invalidation.toFixed(2) : '—') + '.</p>';
+    // Contract selection — confirmed chain vs. unavailable (technical bias only)
+    var contract;
+    if (c.status === 'Confirmed') {
+      contract = '<dl>' +
+        dlRow('Status', '<span class="val-emerald">Confirmed</span>') +
+        dlRow('Direction', esc(c.direction)) +
+        dlRow('Strike', c.strike !== null ? '$' + c.strike + ' · ' + esc(c.type) : '—') +
+        dlRow('Expiration', esc(c.expDate) + ' (0DTE)') +
+        dlRow('Premium', $m(c.premium) + (c.totalCost !== null ? '<span class="dd-sub">$' + c.totalCost + '/contract</span>' : '')) +
+        dlRow('Bid / Ask', $m(c.bid) + ' / ' + $m(c.ask)) +
+        dlRow('Spread', $m(c.spread)) +
+        dlRow('Volume / OI', n(c.volume) + ' / ' + n(c.oi)) +
+        dlRow('Delta / IV', n(c.delta) + ' / ' + (c.iv !== null ? pct(c.iv) : '—')) +
+        '</dl>';
+      if (r.tradeable && p.spyTrigger !== null) {
+        contract += '<p class="prose" style="margin-top:12px">Trigger: enter when SPY <strong>' +
+          esc(p.spyTriggerDir) + ' $' + p.spyTrigger.toFixed(2) + '</strong> on the ' + esc(p.entryTf) +
+          ' close (confirm on ' + esc(p.confirmTf) + '). Style: ' + esc(p.style) + '.</p>';
+      }
+    } else {
+      var estTxt = c.estimatedDirection === 'n/a'
+        ? '<span class="dd-na">n/a</span>'
+        : 'SPY $' + (c.estimatedStrike !== null ? c.estimatedStrike : '—') + ' ' +
+          c.estimatedDirection.replace(' bias', '') + ' (expiring today)';
+      contract = '<dl>' +
+        dlRow('Status', '<span class="val-amber">Unavailable</span>') +
+        dlRow('Reason', esc(c.reason)) +
+        dlRow('Technical Bias', esc(c.technicalBias)) +
+        dlRow('Estimated Contract', estTxt) +
+        dlRow('Contract Status', '<span class="dd-na">' + esc(c.contractStatus) + '</span>') +
+        dlRow('Bid / Ask', '<span class="dd-na">n/a</span>') +
+        dlRow('Premium', '<span class="dd-na">n/a</span>') +
+        dlRow('Spread', '<span class="dd-na">n/a</span>') +
+        dlRow('Volume / OI', '<span class="dd-na">n/a</span>') +
+        dlRow('Delta / IV', '<span class="dd-na">n/a</span>') +
+        '</dl>';
     }
     html += section('0DTE Contract Selection', contract, true);
 
@@ -156,17 +197,28 @@
     html += section('Reasoning', '<p class="prose">' + esc(r.reasoning) + '</p>', true);
 
     // Exit Triggers | Risk Management
-    var exits = r.tradeable ? [
-      'Take partial profit at Target 1 (' + $m(p.t1) + ').',
-      'Hold for Target 2 only if SPY keeps confirming direction.',
-      'Hard stop if premium hits ' + $m(p.stop) + '.',
-      'Exit if SPY ' + (r.action === 'BUY CALL' ? 'loses VWAP' : 'reclaims VWAP') + ' against you.',
-      'Exit if MACD momentum flips or volume dries up.',
-      'Do not hold past 15:55 ET — 0DTE decay accelerates into the close.'
-    ] : [
-      'No live trade — nothing to manage.',
-      'Re-check once the gates above clear (VWAP reclaim/rejection, clean MACD, valid contract).'
-    ];
+    var exits;
+    if (r.tradeable) {
+      exits = [
+        'Take partial profit at Target 1 (' + $m(p.t1) + ').',
+        'Hold for Target 2 only if SPY keeps confirming direction.',
+        'Hard stop if premium hits ' + $m(p.stop) + '.',
+        'Exit if SPY ' + (r.action === 'BUY CALL' ? 'loses VWAP' : 'reclaims VWAP') + ' against you.',
+        'Exit if MACD momentum flips or volume dries up.',
+        'Do not hold past 15:55 ET — 0DTE decay accelerates into the close.'
+      ];
+    } else if (r.status === 'TECHNICAL BIAS ONLY') {
+      exits = [
+        'No confirmed contract — premium-based exits require a live 0DTE chain.',
+        'Watch the SPY trigger (' + trig + ') and invalidation (' + inval + ') to time an entry once a chain is available.',
+        'Treat the estimated strike as a watchlist idea only, not a tradable contract.'
+      ];
+    } else {
+      exits = [
+        'No live trade — nothing to manage.',
+        'Re-check once the gates above clear (VWAP reclaim/rejection, clean MACD, valid contract).'
+      ];
+    }
     var risk = [
       'Paper-trading education only; risk 1–2% of a paper account per trade.',
       'Start with 1 contract; never average down on a losing option.',

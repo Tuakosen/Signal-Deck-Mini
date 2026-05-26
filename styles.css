@@ -163,6 +163,19 @@ legend { font-family: var(--mono); font-size: 11px; text-transform: uppercase; l
 .action-pill.wait { background: rgba(245,158,11,.15); color: var(--amber-300); box-shadow: inset 0 0 0 1px rgba(245,158,11,.4); }
 .action-pill.notrade { background: rgba(113,113,122,.15); color: var(--zinc-300); box-shadow: inset 0 0 0 1px rgba(113,113,122,.4); }
 .price { font-family: var(--mono); font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--zinc-50); line-height: 1.1; }
+
+/* status / data-availability bar (informational, not an error) */
+.mode-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: rgba(245,158,11,.09); border-bottom: 1px solid rgba(245,158,11,.25);
+  padding: 11px 24px; font-family: var(--mono); font-size: 12px; color: var(--amber-300);
+}
+.mode-tag {
+  border-radius: 4px; background: rgba(245,158,11,.18); color: var(--amber-300);
+  padding: 2px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.dd-na { color: var(--zinc-600); }
+.prose.dim { color: var(--zinc-500); font-size: 13px; }
 .sub { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--zinc-500); }
 .hdr-stats { display: flex; gap: 24px; text-align: right; }
 .hdr-stat .v { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--zinc-200); }

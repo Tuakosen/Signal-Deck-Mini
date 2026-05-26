@@ -183,8 +183,10 @@
     return { r: 'FAIL', reason: 'flow opposes the ' + (side ? side.toLowerCase() : 'trade') };
   }
 
-  function optionsCell(opt, gates, hasValidOptions) {
-    if (!hasValidOptions) return { r: 'NEUTRAL', reason: 'no live 0DTE options-chain data — technical bias only' };
+  function optionsCell(opt, gates, hasValidOptions, chainPresent) {
+    if (!hasValidOptions) return { r: 'NEUTRAL', reason: chainPresent
+      ? 'live chain loaded but no directional contract selected'
+      : 'no live 0DTE options-chain data — technical bias only' };
     var bad = gates.filter(function (g) { return g.tag === 'OPT'; });
     if (bad.length) return { r: 'FAIL', reason: bad[0].msg };
     return { r: 'PASS', reason: 'spread ' + money(opt.spread) + ', vol ' + opt.volume +
@@ -240,8 +242,9 @@
     // Layer the analysis: SPY underlying technical vs. live 0DTE options chain.
     deriveLevels(inp.levels, spy);
     var hasUnderlyingData = spy !== null;
-    var opt = inp.option;
+    var opt = selectContract(inp, side);
     var hasValidOptions = validOptionsChain(opt);
+    var chainPresent = !!(inp.chain && inp.chain.expiresToday && (inp.chain.call || inp.chain.put));
 
     // Contract tradeability gates — only meaningful with a real chain.
     if (hasValidOptions) {
@@ -260,7 +263,7 @@
     }
 
     // Entry plan (SPY technical levels always; premium math only with a real chain).
-    var plan = buildPlan(inp, side, hasValidOptions);
+    var plan = buildPlan(inp, side, hasValidOptions, opt);
     if (hasValidOptions && plan.rr !== null && plan.rr < CFG.minRiskReward) {
       gates.push({ tag: 'RR', msg: 'Risk/reward 1:' + plan.rr.toFixed(1) + ' is worse than 1:2.' });
     }
@@ -273,7 +276,11 @@
       action = 'WAIT';
     } else if (!hasValidOptions) {
       status = 'TECHNICAL BIAS ONLY'; statusLabel = 'Technical Bias Only';
-      warning = 'No live 0DTE options-chain data available. Technical SPY bias only.';
+      warning = chainPresent
+        ? (side
+            ? 'Live 0DTE chain loaded, but the selected ' + side + ' quote is incomplete. Technical SPY bias only.'
+            : 'Live 0DTE chain loaded, but SPY bias is neutral — no directional CALL/PUT to confirm. Add VWAP/MACD/RSI for a directional read.')
+        : 'No live 0DTE options-chain data available. Technical SPY bias only.';
       action = side ? 'NO OPTIONS TRADE' : 'WAIT';
     } else {
       status = 'CONFIRMED 0DTE OPTIONS SIGNAL'; statusLabel = 'Confirmed 0DTE Signal';
@@ -300,7 +307,7 @@
         : { r: 'NEUTRAL', reason: 'no clean entry timeframe yet' },
       history: historyCell(inp, side),
       news: { r: inp.news, reason: inp.newsHeadline || 'no catalyst noted' },
-      options: optionsCell(opt, gates, hasValidOptions)
+      options: optionsCell(opt, gates, hasValidOptions, chainPresent)
     };
 
     var passes = ['macd', 'rsivwap', 'volume', 'timeframe', 'history', 'options']
@@ -317,7 +324,7 @@
     else if (confidence === 'MEDIUM') quality = 'B';
     else quality = 'C';
 
-    var contract = buildContract(inp, side, status, bias);
+    var contract = buildContract(inp, side, status, bias, opt);
 
     return {
       action: action,
@@ -362,13 +369,41 @@
     };
   }
 
-  function normalize(raw) {
-    raw = raw || {};
-    var lv = raw.levels || {};
-    var op = raw.option || {};
+  function normOption(op) {
+    op = op || {};
     var bid = num(op.bid), ask = num(op.ask), prem = num(op.premium);
     if (prem === null && bid !== null && ask !== null) prem = (bid + ask) / 2;
     var spread = (bid !== null && ask !== null) ? +(ask - bid).toFixed(2) : null;
+    return {
+      premium: prem, bid: bid, ask: ask, spread: spread,
+      volume: num(op.volume), oi: num(op.oi != null ? op.oi : op.openInterest),
+      iv: num(op.iv), delta: num(op.delta), gamma: num(op.gamma), theta: num(op.theta),
+      strike: num(op.strike), expDate: op.expDate || null
+    };
+  }
+
+  function emptyOption() {
+    return {
+      premium: null, bid: null, ask: null, spread: null, volume: null, oi: null,
+      iv: null, delta: null, gamma: null, theta: null, strike: null, expDate: null
+    };
+  }
+
+  // Chain-aware: when a live chain is present, pick the contract matching the
+  // committed side; otherwise use the single manually-entered contract.
+  function selectContract(inp, side) {
+    if (inp.chain) {
+      if (!side || !inp.chain.expiresToday) return emptyOption();
+      var c = side === 'CALL' ? inp.chain.call : inp.chain.put;
+      return c || emptyOption();
+    }
+    return inp.option;
+  }
+
+  function normalize(raw) {
+    raw = raw || {};
+    var lv = raw.levels || {};
+    var ch = raw.chain;
     return {
       now: raw.now ? new Date(raw.now) : new Date(),
       sessionOverride: raw.session || 'AUTO',
@@ -393,19 +428,21 @@
       news: raw.news || 'NEUTRAL',
       newsHeadline: raw.newsHeadline || '',
       newsImminent: !!raw.newsImminent,
-      option: {
-        premium: prem, bid: bid, ask: ask, spread: spread,
-        volume: num(op.volume), oi: num(op.oi),
-        iv: num(op.iv), delta: num(op.delta), gamma: num(op.gamma), theta: num(op.theta)
-      },
+      option: normOption(raw.option),
+      chain: ch ? {
+        expiresToday: !!ch.expiresToday,
+        expDate: ch.expDate || null,
+        call: ch.call ? normOption(ch.call) : null,
+        put: ch.put ? normOption(ch.put) : null
+      } : null,
       stopPct: raw.stopPct != null ? num(raw.stopPct) : 0.30,
       t1Pct: raw.t1Pct != null ? num(raw.t1Pct) : 0.60,
       t2Pct: raw.t2Pct != null ? num(raw.t2Pct) : 1.20
     };
   }
 
-  function buildPlan(inp, side, hasValidOptions) {
-    var prem = hasValidOptions ? inp.option.premium : null;
+  function buildPlan(inp, side, hasValidOptions, opt) {
+    var prem = hasValidOptions ? opt.premium : null;
     var lv = inp.levels;
     var p = {
       mode: hasValidOptions ? 'Confirmed Options' : 'Technical Bias Only',
@@ -450,16 +487,18 @@
     return p;
   }
 
-  function buildContract(inp, side, status, bias) {
-    var spy = inp.spy, opt = inp.option;
+  function buildContract(inp, side, status, bias, opt) {
+    var spy = inp.spy;
+    opt = opt || inp.option;
     var atm = spy !== null ? Math.round(spy) : null;
-    var strike = atm, type = 'ATM';
-    if (side === 'CALL' && atm !== null) {
-      strike = spy >= atm ? atm : atm - 1; type = strike <= spy ? 'Slightly ITM' : 'ATM';
-    } else if (side === 'PUT' && atm !== null) {
-      strike = spy <= atm ? atm : atm + 1; type = strike >= spy ? 'Slightly ITM' : 'ATM';
+    // Prefer the real chain strike when present; otherwise the ATM estimate.
+    var strike = (opt && opt.strike !== null && opt.strike !== undefined) ? opt.strike : atm;
+    var type = 'ATM';
+    if (side && strike !== null && spy !== null) {
+      if (side === 'CALL') type = strike < spy - 0.01 ? 'Slightly ITM' : strike > spy + 0.01 ? 'Slightly OTM' : 'ATM';
+      else type = strike > spy + 0.01 ? 'Slightly ITM' : strike < spy - 0.01 ? 'Slightly OTM' : 'ATM';
     }
-    var expDate = fmtDateET(inp.now);
+    var expDate = (opt && opt.expDate) || fmtDateET(inp.now);
 
     if (status === 'CONFIRMED 0DTE OPTIONS SIGNAL') {
       return {

@@ -380,7 +380,45 @@
     }
   };
 
-  var list = [Manual, MockData, TwelveData, AlphaVantage];
+  // --- CBOE 0DTE options-chain adapter (free, via same-origin proxy) -------
+  // Talks to /api/options (a Vercel serverless function that proxies CBOE's
+  // free delayed-quotes JSON). No API key. ~15-minute delayed. Options only —
+  // CBOE has no VWAP/MACD/RSI, so pair it with Twelve Data for the technicals.
+  var Cboe = {
+    id: 'cboe',
+    label: 'CBOE 0DTE chain — free, ~15-min delayed (no key)',
+    needsKey: false,
+    keyHint: 'Free, no key. Options chain only — fetch Twelve Data first for VWAP/MACD/RSI, then this for the live chain.',
+    proxy: '/api/options',
+
+    map: function (out) {
+      if (!out || out.error) throw new Error((out && out.error) || 'no response from options proxy');
+      var fields = {}, filled = [], gaps = [], notes = [], chain = null;
+      if (out.underlying != null) { fields.spy = Number(out.underlying).toFixed(2); filled.push('SPY price (CBOE delayed)'); }
+      if (out.expiresToday && (out.call || out.put)) {
+        chain = { expiresToday: true, expDate: out.expDate, call: out.call, put: out.put };
+        filled.push('0DTE chain — ATM call + put with greeks (CBOE delayed)');
+      } else {
+        gaps.push('0DTE options chain (no same-day expiry available)');
+        notes.push(out.note || 'No 0DTE (same-day) expiration available right now.');
+      }
+      ['VWAP', 'MACD', 'RSI', 'prior-day levels', 'QQQ/VIX direction', 'news bias']
+        .forEach(function (g) { gaps.push(g); });
+      notes.push('CBOE provides the options chain only (~15-min delayed). Fetch Twelve Data first for VWAP/MACD/RSI, then this for the live chain.');
+      return { fields: fields, chain: chain, filled: filled, gaps: gaps, notes: notes };
+    },
+
+    fetch: function (opts) {
+      if (typeof fetch === 'undefined') return Promise.reject(new Error('fetch unavailable'));
+      var sym = (opts && opts.symbol) || 'SPY';
+      var self = this;
+      return fetch(self.proxy + '?symbol=' + encodeURIComponent(sym))
+        .then(function (r) { return r.json(); })
+        .then(function (out) { return self.map(out); });
+    }
+  };
+
+  var list = [Manual, MockData, TwelveData, AlphaVantage, Cboe];
   var byId = {};
   list.forEach(function (a) { byId[a.id] = a; });
 
@@ -394,7 +432,7 @@
     histoState: histoState,
     avQuote: avQuote, avSeries: avSeries, parseAvMacd: parseAvMacd,
     avMacdSign: avMacdSign, parseAvRsi: parseAvRsi, parseAvVwap: parseAvVwap,
-    mapTwelveData: TwelveData.map, mapAlphaVantage: AlphaVantage.map
+    mapTwelveData: TwelveData.map, mapAlphaVantage: AlphaVantage.map, mapCboe: Cboe.map
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

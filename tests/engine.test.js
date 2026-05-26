@@ -156,5 +156,50 @@ var nodata = E.runAnalysis({ now: RTH, session: 'AUTO' });
 ok(nodata.status === 'NO MARKET DATA', 'no spy price -> NO MARKET DATA');
 ok(nodata.action === 'WAIT', 'no data -> WAIT');
 
+// 13) Live chain + bullish technicals -> CONFIRMED, contract from chain
+var CHAIN = {
+  expiresToday: true, expDate: '2026-05-20',
+  call: { strike: 521, bid: 1.20, ask: 1.24, volume: 8400, oi: 12500, iv: 0.18, delta: 0.52, gamma: 0.03, theta: -0.45 },
+  put: { strike: 520, bid: 1.05, ask: 1.09, volume: 6000, oi: 9000, iv: 0.19, delta: -0.48 }
+};
+var chCall = E.runAnalysis({
+  now: RTH, session: 'RTH', spy: 521.40,
+  levels: { vwap: 520.50, resistance: 522, support: 519, pdc: 519.80, open: 520.10 },
+  macdDir: 'BULL', histo: 'EXPANDING', macd15: 'BULL', rsi: 58, volume: 'CONFIRM_UP',
+  qqq: 'BULL', es: 'BULL', vix: 'DOWN', yield10: 'DOWN', regime: 'TREND', news: 'BULLISH',
+  chain: CHAIN
+});
+ok(chCall.status === 'CONFIRMED 0DTE OPTIONS SIGNAL', 'chain + bullish -> CONFIRMED');
+ok(chCall.action === 'BUY CALL', 'chain bullish -> BUY CALL');
+ok(chCall.contract.direction === 'CALL', 'chain -> CALL contract');
+ok(chCall.contract.strike === 521, 'uses chain call strike (521)');
+ok(chCall.contract.premium === 1.22, 'premium = chain call mid (1.22)');
+ok(chCall.contract.delta === 0.52, 'carries chain call delta');
+ok(chCall.plan.entry === 1.22, 'plan entry from chain premium');
+ok(chCall.plan.mode === 'Confirmed Options', 'chain -> confirmed plan mode');
+
+// 14) Live chain + bearish technicals -> BUY PUT using the put leg
+var chPut = E.runAnalysis({
+  now: RTH, session: 'RTH', spy: 518.20,
+  levels: { vwap: 519.30, resistance: 520.50, support: 517 },
+  macdDir: 'BEAR', histo: 'EXPANDING', macd15: 'BEAR', rsi: 42, volume: 'CONFIRM_DOWN',
+  qqq: 'BEAR', es: 'BEAR', vix: 'UP', yield10: 'UP', regime: 'TREND', news: 'BEARISH',
+  chain: CHAIN
+});
+ok(chPut.action === 'BUY PUT', 'chain bearish -> BUY PUT');
+ok(chPut.contract.direction === 'PUT', 'chain -> PUT contract');
+ok(chPut.contract.strike === 520, 'uses chain put strike (520)');
+
+// 15) Live chain but neutral bias -> can't pick a side -> technical only
+var chNeutral = E.runAnalysis({
+  now: RTH, session: 'RTH', spy: 521.00,
+  levels: { vwap: 519.00 }, macdDir: 'FLAT', macd15: 'NEUTRAL',
+  qqq: 'NEUTRAL', es: 'NEUTRAL', news: 'NEUTRAL', regime: 'RANGE',
+  chain: CHAIN
+});
+ok(chNeutral.status === 'TECHNICAL BIAS ONLY', 'chain + neutral -> TECHNICAL BIAS ONLY');
+ok(chNeutral.action === 'WAIT', 'chain + neutral -> WAIT');
+ok(/neutral/.test(chNeutral.warning), 'neutral-bias chain warning mentions neutral');
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

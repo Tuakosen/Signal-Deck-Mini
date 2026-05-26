@@ -267,9 +267,12 @@
     $('card').hidden = true; $('empty').hidden = true;
   }
 
-  function analyze() {
-    try { renderCard(E.runAnalysis(collect())); }
-    catch (err) { showError('Error: ' + (err.message || String(err))); }
+  function analyze(extra) {
+    try {
+      var input = collect();
+      if (extra && extra.chain) input.chain = extra.chain;
+      renderCard(E.runAnalysis(input));
+    } catch (err) { showError('Error: ' + (err.message || String(err))); }
   }
 
   // ---- data source ----
@@ -314,8 +317,9 @@
       applyFields(res.fields);
       var filled = res.filled.length ? 'Filled ' + res.filled.length + ' field(s).' : 'No fields returned.';
       var gaps = (res.gaps && res.gaps.length) ? ' Manual: ' + res.gaps.join(', ') + '.' : '';
-      setStatus('ok', esc(filled + gaps));
-      analyze();
+      var notes = (res.notes && res.notes.length) ? ' ' + res.notes.join(' ') : '';
+      setStatus('ok', esc(filled + gaps + notes));
+      analyze(res.chain ? { chain: res.chain } : null);
     }).catch(function (err) {
       setStatus('err', 'Fetch failed: ' + esc(err.message || String(err)));
       showError('Fetch failed: ' + (err.message || String(err)));

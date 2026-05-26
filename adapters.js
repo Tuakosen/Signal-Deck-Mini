@@ -418,7 +418,47 @@
     }
   };
 
-  var list = [Manual, MockData, TwelveData, AlphaVantage, Cboe];
+  // --- Combined one-click: Twelve Data technicals + CBOE 0DTE chain --------
+  var Combo = {
+    id: 'td+cboe',
+    label: 'Twelve Data + CBOE — technicals + 0DTE chain (one-click)',
+    needsKey: true,
+    keyHint: 'Twelve Data key (free at twelvedata.com) powers VWAP/MACD/RSI; the CBOE chain needs no key.',
+
+    // Pure merge of the two providers’ results. Twelve Data wins on overlap
+    // (real-time-ish quote) while the chain comes from CBOE.
+    merge: function (t, c) {
+      t = t || { fields: {}, filled: [], gaps: [], notes: [] };
+      c = c || { fields: {}, chain: null, filled: [], gaps: [], notes: [] };
+      var fields = {};
+      Object.keys(c.fields || {}).forEach(function (k) { fields[k] = c.fields[k]; });
+      Object.keys(t.fields || {}).forEach(function (k) { fields[k] = t.fields[k]; });
+      var gaps = ['ES futures direction', '10Y yield direction', 'news bias', 'pre-market / opening-range levels'];
+      // CBOE never supplies VWAP/MACD, so their absence means Twelve Data didn't contribute.
+      if (!fields.vwap && !fields.macdDir) gaps.unshift('Twelve Data returned no data — check API key / rate limit');
+      if (!c.chain) gaps.unshift('No live 0DTE chain from CBOE right now (no same-day expiry or upstream error)');
+      return {
+        fields: fields,
+        chain: c.chain || null,
+        filled: (t.filled || []).concat(c.filled || []),
+        gaps: gaps,
+        notes: ['One-click: Twelve Data technicals + CBOE 0DTE chain (~15-min delayed).']
+      };
+    },
+
+    fetch: function (opts) {
+      var self = this;
+      var td = TwelveData.fetch(opts).catch(function (e) {
+        return { fields: {}, filled: [], gaps: [], notes: ['Twelve Data error: ' + (e.message || e)] };
+      });
+      var cb = Cboe.fetch(opts).catch(function (e) {
+        return { fields: {}, chain: null, filled: [], gaps: [], notes: ['CBOE error: ' + (e.message || e)] };
+      });
+      return Promise.all([td, cb]).then(function (parts) { return self.merge(parts[0], parts[1]); });
+    }
+  };
+
+  var list = [Manual, MockData, TwelveData, AlphaVantage, Cboe, Combo];
   var byId = {};
   list.forEach(function (a) { byId[a.id] = a; });
 
@@ -432,7 +472,8 @@
     histoState: histoState,
     avQuote: avQuote, avSeries: avSeries, parseAvMacd: parseAvMacd,
     avMacdSign: avMacdSign, parseAvRsi: parseAvRsi, parseAvVwap: parseAvVwap,
-    mapTwelveData: TwelveData.map, mapAlphaVantage: AlphaVantage.map, mapCboe: Cboe.map
+    mapTwelveData: TwelveData.map, mapAlphaVantage: AlphaVantage.map, mapCboe: Cboe.map,
+    mergeCombo: Combo.merge
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -69,5 +69,27 @@ var threw = false;
 try { A.mapCboe({ error: 'boom' }); } catch (e) { threw = true; }
 ok(threw, 'map throws on proxy error');
 
+// ---- Combined provider merge (Twelve Data + CBOE) ----
+var tdRes = {
+  fields: { spy: '521.40', vwap: '520.50', macdDir: 'BULL', rsi: '58', qqq: 'BULL' },
+  filled: ['SPY price', 'VWAP (5m)', 'MACD 5m'], gaps: ['x'], notes: ['td note']
+};
+var cbRes = {
+  fields: { spy: '521.38' }, // delayed, slightly different
+  chain: { expiresToday: true, expDate: '2026-05-20', call: { strike: 521 }, put: { strike: 520 } },
+  filled: ['0DTE chain'], gaps: ['VWAP'], notes: ['cboe note']
+};
+var m = A.mergeCombo(tdRes, cbRes);
+ok(m.fields.spy === '521.40', 'merge: Twelve Data wins on overlapping SPY price');
+ok(m.fields.vwap === '520.50' && m.fields.macdDir === 'BULL', 'merge: keeps TD technicals');
+ok(m.chain && m.chain.expiresToday === true, 'merge: carries CBOE chain');
+ok(m.filled.indexOf('0DTE chain') >= 0 && m.filled.indexOf('VWAP (5m)') >= 0, 'merge: unions filled lists');
+ok(m.gaps.indexOf('ES futures direction') >= 0, 'merge: curated remaining gaps');
+
+var mNoChain = A.mergeCombo(tdRes, { fields: {}, chain: null, filled: [], gaps: [], notes: [] });
+ok(mNoChain.gaps.some(function (g) { return /No live 0DTE chain/.test(g); }), 'merge: flags missing chain');
+var mNoTd = A.mergeCombo({ fields: {}, filled: [], gaps: [], notes: [] }, cbRes);
+ok(mNoTd.gaps.some(function (g) { return /Twelve Data returned no data/.test(g); }), 'merge: flags missing TD');
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);
